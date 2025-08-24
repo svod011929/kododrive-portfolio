@@ -426,9 +426,8 @@ sudo -u postgres psql -c "\l+ kododrive_db"
 
 **KodoDrive**
 - 🌐 Website: [kododrive.ru](https://kododrive.ru)
-- 📧 Email: kododrive@example.com
 - 💬 Telegram: [@kodoDrive](https://t.me/kodoDrive)
-- 💻 GitHub: [@kododrive](https://github.com/kododrive)
+- 💻 GitHub: [@kododrive](https://github.com/svod011929)
 
 ## 🙏 Благодарности
 
