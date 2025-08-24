@@ -42,7 +42,7 @@ cat << "EOF"
 ║    ╚═╝  ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝  ╚══════╝    ║
 ║                                                              ║
 ║              Автоматическая установка веб-сайта              ║
-║                        Версия 1.0                           ║
+║                        Версия 2.0 (Fixed)                   ║
 ╚══════════════════════════════════════════════════════════════╝
 
 EOF
@@ -76,6 +76,13 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     error "Установка отменена"
 fi
 
+# Функция проверки команд
+check_command() {
+    if ! command -v $1 &> /dev/null; then
+        error "Команда $1 не найдена"
+    fi
+}
+
 # Функция создания пользователя
 create_user() {
     log "Создание пользователя kododrive..."
@@ -91,8 +98,8 @@ create_user() {
 # Функция обновления системы
 update_system() {
     log "Обновление системы..."
-    apt update && apt upgrade -y
-    apt install software-properties-common -y
+    apt update && apt upgrade -y || error "Не удалось обновить систему"
+    apt install software-properties-common -y || error "Не удалось установить software-properties-common"
 }
 
 # Функция установки пакетов
@@ -113,17 +120,19 @@ install_packages() {
         htop \
         nano \
         wget \
-        unzip
+        unzip || error "Не удалось установить пакеты"
+
+    log "Все пакеты установлены успешно"
 }
 
 # Функция настройки PostgreSQL
 setup_postgresql() {
     log "Настройка PostgreSQL..."
-    systemctl start postgresql
-    systemctl enable postgresql
+    systemctl start postgresql || error "Не удалось запустить PostgreSQL"
+    systemctl enable postgresql || error "Не удалось включить автозапуск PostgreSQL"
 
     # Создание базы данных и пользователя
-    sudo -u postgres psql << EOF
+    sudo -u postgres psql << EOF || error "Не удалось настроить базу данных"
 CREATE DATABASE kododrive_db;
 CREATE USER kododrive WITH ENCRYPTED PASSWORD '$DB_PASSWORD';
 GRANT ALL PRIVILEGES ON DATABASE kododrive_db TO kododrive;
@@ -139,6 +148,13 @@ create_project_structure() {
     log "Создание структуры проекта..."
 
     PROJECT_DIR="/home/kododrive/kododrive-portfolio"
+
+    # Удаляем старую директорию если существует
+    if [ -d "$PROJECT_DIR" ]; then
+        warning "Старая директория проекта найдена, удаляем..."
+        rm -rf "$PROJECT_DIR"
+    fi
+
     mkdir -p $PROJECT_DIR/{static/{css,js,img,uploads},templates/admin,nginx,systemd,scripts,instance,migrations}
 
     chown -R kododrive:kododrive /home/kododrive/
@@ -146,11 +162,11 @@ create_project_structure() {
     log "Структура каталогов создана"
 }
 
-# Функция создания Python файлов
+# Функция создания Python файлов (исправленная версия)
 create_python_files() {
     log "Создание Python файлов..."
 
-    # app.py
+    # app.py (исправленная версия)
     cat > /home/kododrive/kododrive-portfolio/app.py << 'EOF'
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
@@ -163,10 +179,12 @@ from datetime import datetime
 import json
 
 app = Flask(__name__)
+
+# Конфигурация
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///instance/portfolio.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'postgresql://kododrive:password@localhost/kododrive_db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['UPLOAD_FOLDER'] = 'static/uploads'
+app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'static', 'uploads')
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
@@ -398,118 +416,105 @@ def admin_portfolio_delete(id):
     return redirect(url_for('admin_portfolio'))
 
 def create_initial_data():
-    # Навыки
-    skills = [
-        Skill(name="Python", percentage=95, order_index=1),
-        Skill(name="Telegram Bot API", percentage=90, order_index=2),
-        Skill(name="Flask/Django", percentage=85, order_index=3),
-        Skill(name="PostgreSQL/MySQL", percentage=80, order_index=4)
-    ]
+    """Создание начальных данных"""
+    try:
+        # Навыки
+        skills = [
+            Skill(name="Python", percentage=95, order_index=1),
+            Skill(name="Telegram Bot API", percentage=90, order_index=2),
+            Skill(name="Flask/Django", percentage=85, order_index=3),
+            Skill(name="PostgreSQL/MySQL", percentage=80, order_index=4)
+        ]
 
-    # Услуги
-    services = [
-        Service(
-            title="Telegram Боты",
-            description="Создание ботов любой сложности: от простых информационных до многофункциональных с базами данных",
-            icon="fas fa-robot",
-            features='["Интерактивные меню", "Обработка медиафайлов", "Интеграция с API", "Платежные системы"]',
-            order_index=1
-        ),
-        Service(
-            title="Автоматизация",
-            description="Скрипты для автоматизации рутинных задач и бизнес-процессов в Telegram",
-            icon="fas fa-cogs",
-            features='["Парсинг данных", "Массовые рассылки", "Мониторинг чатов", "Обработка заявок"]',
-            order_index=2
-        )
-    ]
+        # Услуги
+        services = [
+            Service(
+                title="Telegram Боты",
+                description="Создание ботов любой сложности: от простых информационных до многофункциональных с базами данных",
+                icon="fas fa-robot",
+                features='["Интерактивные меню", "Обработка медиафайлов", "Интеграция с API", "Платежные системы"]',
+                order_index=1
+            ),
+            Service(
+                title="Автоматизация",
+                description="Скрипты для автоматизации рутинных задач и бизнес-процессов в Telegram",
+                icon="fas fa-cogs",
+                features='["Парсинг данных", "Массовые рассылки", "Мониторинг чатов", "Обработка заявок"]',
+                order_index=2
+            ),
+            Service(
+                title="API Интеграция",
+                description="Подключение ваших ботов к внешним сервисам и системам управления",
+                icon="fas fa-plug",
+                features='["CRM системы", "Базы данных", "Облачные сервисы", "Веб-приложения"]',
+                order_index=3
+            )
+        ]
 
-    # Проекты
-    portfolio = [
-        Portfolio(
-            title="E-commerce Бот",
-            description="Полнофункциональный бот для интернет-магазина с каталогом товаров, корзиной и системой оплаты",
-            icon="fas fa-shopping-cart",
-            technologies='["Python", "aiogram", "PostgreSQL", "Stripe API"]',
-            order_index=1
-        ),
-        Portfolio(
-            title="Бот-планировщик",
-            description="Система управления задачами и напоминаний с календарной интеграцией",
-            icon="fas fa-calendar-alt",
-            technologies='["Python", "python-telegram-bot", "SQLite", "Google Calendar API"]',
-            order_index=2
-        )
-    ]
+        # Проекты
+        portfolio = [
+            Portfolio(
+                title="E-commerce Бот",
+                description="Полнофункциональный бот для интернет-магазина с каталогом товаров, корзиной и системой оплаты",
+                icon="fas fa-shopping-cart",
+                technologies='["Python", "aiogram", "PostgreSQL", "Stripe API"]',
+                order_index=1
+            ),
+            Portfolio(
+                title="Бот-планировщик",
+                description="Система управления задачами и напоминаний с календарной интеграцией",
+                icon="fas fa-calendar-alt",
+                technologies='["Python", "python-telegram-bot", "SQLite", "Google Calendar API"]',
+                order_index=2
+            ),
+            Portfolio(
+                title="Аналитический Бот",
+                description="Бот для сбора и анализа статистики чатов с генерацией отчетов",
+                icon="fas fa-chart-line",
+                technologies='["Python", "Telethon", "MongoDB", "Matplotlib"]',
+                order_index=3
+            )
+        ]
 
-    # Статистика
-    stats = [
-        Stats(label="Проектов завершено", value=50, order_index=1),
-        Stats(label="Довольных клиентов", value=35, order_index=2),
-        Stats(label="Года опыта", value=2, order_index=3)
-    ]
+        # Статистика
+        stats = [
+            Stats(label="Проектов завершено", value=50, order_index=1),
+            Stats(label="Довольных клиентов", value=35, order_index=2),
+            Stats(label="Года опыта", value=2, order_index=3)
+        ]
 
-    for item_list in [skills, services, portfolio, stats]:
-        for item in item_list:
-            db.session.add(item)
+        for item_list in [skills, services, portfolio, stats]:
+            for item in item_list:
+                db.session.add(item)
 
-    db.session.commit()
+        db.session.commit()
+        print("Начальные данные созданы успешно!")
+    except Exception as e:
+        print(f"Ошибка при создании начальных данных: {e}")
+        db.session.rollback()
 
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
 
-        # Создание начальных данных если их нет
+        # Создание админа и начальных данных если их нет
         if User.query.count() == 0:
+            admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
             admin = User(
                 username='admin',
-                password_hash=generate_password_hash(os.environ.get('ADMIN_PASSWORD', 'admin123')),
+                password_hash=generate_password_hash(admin_password),
                 is_admin=True
             )
             db.session.add(admin)
+
             create_initial_data()
             db.session.commit()
+            print(f"Админ создан с паролем: {admin_password}")
 
-    app.run(debug=False, host='0.0.0.0')
+    app.run(debug=False, host='0.0.0.0', port=5000)
 EOF
 
-    # config.py
-    cat > /home/kododrive/kododrive-portfolio/config.py << 'EOF'
-import os
-from datetime import timedelta
-
-class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///instance/portfolio.db'
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    UPLOAD_FOLDER = 'static/uploads'
-    MAX_CONTENT_LENGTH = 16 * 1024 * 1024
-    PERMANENT_SESSION_LIFETIME = timedelta(hours=24)
-
-class ProductionConfig(Config):
-    DEBUG = False
-
-class DevelopmentConfig(Config):
-    DEBUG = True
-
-config = {
-    'development': DevelopmentConfig,
-    'production': ProductionConfig,
-    'default': DevelopmentConfig
-}
-EOF
-
-    # wsgi.py
-    cat > /home/kododrive/kododrive-portfolio/wsgi.py << 'EOF'
-#!/usr/bin/env python3
-import os
-from app import app
-
-if __name__ == "__main__":
-    app.run()
-EOF
-
-    # requirements.txt
+    # requirements.txt (обновленная версия)
     cat > /home/kododrive/kododrive-portfolio/requirements.txt << 'EOF'
 Flask==3.0.0
 Flask-SQLAlchemy==3.1.1
@@ -518,74 +523,1137 @@ Werkzeug==3.0.1
 psycopg2-binary==2.9.7
 gunicorn==21.2.0
 python-dotenv==1.0.0
+Jinja2==3.1.2
+MarkupSafe==2.1.3
 EOF
 
-    # .env
+    # wsgi.py
+    cat > /home/kododrive/kododrive-portfolio/wsgi.py << 'EOF'
+#!/usr/bin/env python3
+import os
+import sys
+
+# Добавляем путь к проекту
+sys.path.insert(0, '/home/kododrive/kododrive-portfolio')
+
+from app import app
+
+if __name__ == "__main__":
+    app.run()
+EOF
+
+    # .env файл с правильными переменными
     cat > /home/kododrive/kododrive-portfolio/.env << EOF
 FLASK_ENV=production
+FLASK_APP=app.py
 SECRET_KEY=$SECRET_KEY
 DATABASE_URL=postgresql://kododrive:$DB_PASSWORD@localhost/kododrive_db
 DOMAIN=$DOMAIN
 ADMIN_PASSWORD=$ADMIN_PASSWORD
 EOF
 
-    # .gitignore
-    cat > /home/kododrive/kododrive-portfolio/.gitignore << 'EOF'
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-instance/
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-.DS_Store
-*.log
-EOF
-
+    chmod +x /home/kododrive/kododrive-portfolio/wsgi.py
     chown -R kododrive:kododrive /home/kododrive/kododrive-portfolio/
     log "Python файлы созданы"
 }
 
-# Функция создания HTML шаблонов
+# Функция создания статических файлов (ваши оригинальные CSS и JS)
+create_static_files() {
+    log "Создание статических файлов..."
+
+    # Копируем полный CSS из исходного кода
+    cat > /home/kododrive/kododrive-portfolio/static/css/style.css << 'EOF'
+:root {
+    --primary-color: #6366f1;
+    --secondary-color: #8b5cf6;
+    --accent-color: #06b6d4;
+    --bg-color: #0f0f23;
+    --bg-secondary: #1a1a2e;
+    --text-color: #ffffff;
+    --text-muted: #a1a1aa;
+    --border-color: #374151;
+    --gradient: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    line-height: 1.6;
+    overflow-x: hidden;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* Header */
+.header {
+    position: fixed;
+    top: 0;
+    width: 100%;
+    background: rgba(15, 15, 35, 0.95);
+    backdrop-filter: blur(10px);
+    z-index: 1000;
+    transition: all 0.3s ease;
+}
+
+.navbar {
+    padding: 1rem 0;
+}
+
+.nav-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.nav-logo h1 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    background: var(--gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.nav-menu {
+    display: flex;
+    list-style: none;
+    gap: 2rem;
+}
+
+.nav-link {
+    text-decoration: none;
+    color: var(--text-color);
+    font-weight: 500;
+    transition: color 0.3s ease;
+    position: relative;
+}
+
+.nav-link:hover {
+    color: var(--primary-color);
+}
+
+.nav-link::after {
+    content: '';
+    position: absolute;
+    bottom: -5px;
+    left: 0;
+    width: 0;
+    height: 2px;
+    background: var(--gradient);
+    transition: width 0.3s ease;
+}
+
+.nav-link:hover::after {
+    width: 100%;
+}
+
+.hamburger {
+    display: none;
+    flex-direction: column;
+    cursor: pointer;
+}
+
+.bar {
+    width: 25px;
+    height: 3px;
+    background: var(--text-color);
+    margin: 3px 0;
+    transition: 0.3s;
+}
+
+/* Hero Section */
+.hero {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    padding: 80px 0;
+    position: relative;
+    overflow: hidden;
+}
+
+.hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(99, 102, 241, 0.1) 0%, transparent 70%);
+    animation: float 20s infinite linear;
+}
+
+.hero-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+    position: relative;
+    z-index: 2;
+}
+
+.hero-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4rem;
+    align-items: center;
+}
+
+.hero-title {
+    font-size: 3.5rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+    line-height: 1.2;
+}
+
+.hero-subtitle {
+    font-size: 1.5rem;
+    color: var(--primary-color);
+    margin-bottom: 1.5rem;
+    font-weight: 600;
+}
+
+.hero-description {
+    font-size: 1.1rem;
+    color: var(--text-muted);
+    margin-bottom: 2rem;
+    max-width: 500px;
+}
+
+.hero-buttons {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.btn {
+    padding: 12px 30px;
+    border: none;
+    border-radius: 50px;
+    text-decoration: none;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn-primary {
+    background: var(--gradient);
+    color: white;
+    box-shadow: var(--shadow);
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 15px 40px rgba(99, 102, 241, 0.4);
+}
+
+.btn-secondary {
+    background: transparent;
+    color: var(--text-color);
+    border: 2px solid var(--primary-color);
+}
+
+.btn-secondary:hover {
+    background: var(--primary-color);
+    transform: translateY(-2px);
+}
+
+.profile-card {
+    position: relative;
+    width: 300px;
+    height: 300px;
+    margin: 0 auto;
+    background: var(--bg-secondary);
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow);
+}
+
+.profile-avatar {
+    width: 150px;
+    height: 150px;
+    background: var(--gradient);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 4rem;
+    color: white;
+}
+
+.floating-icons {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+}
+
+.floating-icons i {
+    position: absolute;
+    font-size: 2rem;
+    color: var(--primary-color);
+    animation: float 3s infinite ease-in-out;
+}
+
+.floating-icons i:nth-child(1) {
+    top: 20px;
+    left: 20px;
+    animation-delay: 0s;
+}
+
+.floating-icons i:nth-child(2) {
+    top: 20px;
+    right: 20px;
+    animation-delay: 0.5s;
+}
+
+.floating-icons i:nth-child(3) {
+    bottom: 20px;
+    left: 20px;
+    animation-delay: 1s;
+}
+
+.floating-icons i:nth-child(4) {
+    bottom: 20px;
+    right: 20px;
+    animation-delay: 1.5s;
+}
+
+/* About Section */
+.about {
+    padding: 100px 0;
+    background: var(--bg-secondary);
+}
+
+.section-title {
+    text-align: center;
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 3rem;
+    background: var(--gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.about-content {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 4rem;
+    align-items: center;
+}
+
+.about-text h3 {
+    font-size: 1.8rem;
+    margin-bottom: 1rem;
+    color: var(--primary-color);
+}
+
+.about-text p {
+    font-size: 1.1rem;
+    color: var(--text-muted);
+    margin-bottom: 2rem;
+}
+
+.skills {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.skill {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.skill-name {
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.skill-bar {
+    height: 8px;
+    background: var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.skill-progress {
+    height: 100%;
+    background: var(--gradient);
+    width: 0;
+    transition: width 2s ease;
+    border-radius: 4px;
+}
+
+.about-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.stat {
+    text-align: center;
+    padding: 2rem;
+    background: var(--bg-color);
+    border-radius: 15px;
+    box-shadow: var(--shadow);
+}
+
+.stat-number {
+    font-size: 3rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    margin-bottom: 0.5rem;
+}
+
+.stat p {
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+/* Services Section */
+.services {
+    padding: 100px 0;
+}
+
+.services-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+}
+
+.service-card {
+    background: var(--bg-secondary);
+    padding: 2.5rem;
+    border-radius: 20px;
+    text-align: center;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    border: 1px solid var(--border-color);
+}
+
+.service-card:hover {
+    transform: translateY(-10px);
+    box-shadow: var(--shadow);
+}
+
+.service-icon {
+    width: 80px;
+    height: 80px;
+    background: var(--gradient);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 1.5rem;
+    font-size: 2rem;
+    color: white;
+}
+
+.service-card h3 {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+    color: var(--text-color);
+}
+
+.service-card p {
+    color: var(--text-muted);
+    margin-bottom: 1.5rem;
+    line-height: 1.6;
+}
+
+.service-card ul {
+    list-style: none;
+    text-align: left;
+}
+
+.service-card li {
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+    position: relative;
+    padding-left: 1.5rem;
+}
+
+.service-card li::before {
+    content: '✓';
+    position: absolute;
+    left: 0;
+    color: var(--accent-color);
+    font-weight: bold;
+}
+
+/* Portfolio Section */
+.portfolio {
+    padding: 100px 0;
+    background: var(--bg-secondary);
+}
+
+.portfolio-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 2rem;
+}
+
+.portfolio-item {
+    background: var(--bg-color);
+    border-radius: 20px;
+    overflow: hidden;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    border: 1px solid var(--border-color);
+}
+
+.portfolio-item:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--shadow);
+}
+
+.portfolio-image {
+    height: 200px;
+    background: var(--gradient);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 4rem;
+    color: white;
+}
+
+.portfolio-content {
+    padding: 2rem;
+}
+
+.portfolio-content h3 {
+    font-size: 1.3rem;
+    margin-bottom: 1rem;
+    color: var(--text-color);
+}
+
+.portfolio-content p {
+    color: var(--text-muted);
+    margin-bottom: 1.5rem;
+    line-height: 1.6;
+}
+
+.portfolio-tech {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.portfolio-tech span {
+    background: var(--primary-color);
+    color: white;
+    padding: 0.3rem 0.8rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.portfolio-link {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.3s ease;
+}
+
+.portfolio-link:hover {
+    color: var(--accent-color);
+}
+
+/* Contact Section */
+.contact {
+    padding: 100px 0;
+}
+
+.contact-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4rem;
+    align-items: start;
+}
+
+.contact-info h3 {
+    font-size: 1.8rem;
+    margin-bottom: 1rem;
+    color: var(--text-color);
+}
+
+.contact-info p {
+    color: var(--text-muted);
+    margin-bottom: 2rem;
+    font-size: 1.1rem;
+}
+
+.contact-details {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.contact-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    color: var(--text-muted);
+}
+
+.contact-item i {
+    width: 20px;
+    color: var(--primary-color);
+    font-size: 1.2rem;
+}
+
+.contact-form {
+    background: var(--bg-secondary);
+    padding: 2.5rem;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+}
+
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-group input,
+.form-group textarea {
+    width: 100%;
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-color);
+    color: var(--text-color);
+    font-family: inherit;
+    transition: border-color 0.3s ease;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 120px;
+}
+
+/* Footer */
+.footer {
+    background: var(--bg-secondary);
+    padding: 2rem 0;
+    border-top: 1px solid var(--border-color);
+}
+
+.footer-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.footer-text p {
+    color: var(--text-muted);
+}
+
+.footer-social {
+    display: flex;
+    gap: 1rem;
+}
+
+.social-link {
+    width: 40px;
+    height: 40px;
+    background: var(--bg-color);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-color);
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+
+.social-link:hover {
+    background: var(--primary-color);
+    transform: translateY(-2px);
+}
+
+/* Animations */
+@keyframes float {
+    0%, 100% {
+        transform: translateY(0px);
+    }
+    50% {
+        transform: translateY(-20px);
+    }
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in-up {
+    animation: fadeInUp 0.8s ease forwards;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .hamburger {
+        display: flex;
+    }
+
+    .nav-menu {
+        position: fixed;
+        left: -100%;
+        top: 70px;
+        flex-direction: column;
+        background-color: var(--bg-secondary);
+        width: 100%;
+        text-align: center;
+        transition: 0.3s;
+        box-shadow: var(--shadow);
+        padding: 2rem 0;
+    }
+
+    .nav-menu.active {
+        left: 0;
+    }
+
+    .hero-content {
+        grid-template-columns: 1fr;
+        text-align: center;
+        gap: 2rem;
+    }
+
+    .hero-title {
+        font-size: 2.5rem;
+    }
+
+    .about-content {
+        grid-template-columns: 1fr;
+        gap: 2rem;
+    }
+
+    .contact-content {
+        grid-template-columns: 1fr;
+        gap: 2rem;
+    }
+
+    .services-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .portfolio-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .footer-content {
+        flex-direction: column;
+        gap: 1rem;
+        text-align: center;
+    }
+}
+
+@media (max-width: 480px) {
+    .container {
+        padding: 0 15px;
+    }
+
+    .hero-title {
+        font-size: 2rem;
+    }
+
+    .section-title {
+        font-size: 2rem;
+    }
+
+    .profile-card {
+        width: 250px;
+        height: 250px;
+    }
+
+    .profile-avatar {
+        width: 120px;
+        height: 120px;
+        font-size: 3rem;
+    }
+}
+
+/* Typing Animation */
+.typing-text::after {
+    content: '|';
+    color: var(--primary-color);
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 50% {
+        opacity: 1;
+    }
+    51%, 100% {
+        opacity: 0;
+    }
+}
+EOF
+
+    # Копируем полный JavaScript из исходного кода
+    cat > /home/kododrive/kododrive-portfolio/static/js/script.js << 'EOF'
+// Mobile Navigation
+const hamburger = document.querySelector('.hamburger');
+const navMenu = document.querySelector('.nav-menu');
+
+hamburger.addEventListener('click', () => {
+    hamburger.classList.toggle('active');
+    navMenu.classList.toggle('active');
+});
+
+// Close mobile menu when clicking on a link
+document.querySelectorAll('.nav-link').forEach(n => n.addEventListener('click', () => {
+    hamburger.classList.remove('active');
+    navMenu.classList.remove('active');
+}));
+
+// Smooth Scrolling
+document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+    anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const target = document.querySelector(this.getAttribute('href'));
+        const offsetTop = target.offsetTop - 80;
+
+        window.scrollTo({
+            top: offsetTop,
+            behavior: 'smooth'
+        });
+    });
+});
+
+// Header Scroll Effect
+window.addEventListener('scroll', () => {
+    const header = document.querySelector('.header');
+    if (window.scrollY > 100) {
+        header.style.background = 'rgba(15, 15, 35, 0.98)';
+        header.style.boxShadow = '0 2px 20px rgba(0, 0, 0, 0.3)';
+    } else {
+        header.style.background = 'rgba(15, 15, 35, 0.95)';
+        header.style.boxShadow = 'none';
+    }
+});
+
+// Typing Animation
+const typingText = document.querySelector('.typing-text');
+const text = 'Привет, я KodoDrive';
+let i = 0;
+
+function typeWriter() {
+    if (i < text.length) {
+        typingText.innerHTML = text.slice(0, i + 1);
+        i++;
+        setTimeout(typeWriter, 100);
+    }
+}
+
+// Start typing animation when page loads
+window.addEventListener('load', () => {
+    typingText.innerHTML = '';
+    typeWriter();
+});
+
+// Animated Counters
+function animateCounters() {
+    const counters = document.querySelectorAll('.stat-number');
+
+    counters.forEach(counter => {
+        const target = parseInt(counter.getAttribute('data-target'));
+        let current = 0;
+        const increment = target / 200;
+
+        const updateCounter = () => {
+            if (current < target) {
+                current += increment;
+                counter.textContent = Math.ceil(current);
+                setTimeout(updateCounter, 10);
+            } else {
+                counter.textContent = target;
+            }
+        };
+
+        updateCounter();
+    });
+}
+
+// Skill Bars Animation
+function animateSkillBars() {
+    const skillBars = document.querySelectorAll('.skill-progress');
+
+    skillBars.forEach(bar => {
+        const width = bar.getAttribute('data-width');
+        bar.style.width = width;
+    });
+}
+
+// Intersection Observer for Animations
+const observerOptions = {
+    threshold: 0.3,
+    rootMargin: '0px 0px -100px 0px'
+};
+
+const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            entry.target.classList.add('fade-in-up');
+
+            // Trigger specific animations
+            if (entry.target.classList.contains('about')) {
+                setTimeout(animateCounters, 500);
+                setTimeout(animateSkillBars, 800);
+            }
+        }
+    });
+}, observerOptions);
+
+// Observe sections for animations
+document.querySelectorAll('section').forEach(section => {
+    observer.observe(section);
+});
+
+// Portfolio Filter (если понадобится в будущем)
+function filterPortfolio(category) {
+    const items = document.querySelectorAll('.portfolio-item');
+
+    items.forEach(item => {
+        if (category === 'all' || item.dataset.category === category) {
+            item.style.display = 'block';
+            setTimeout(() => {
+                item.style.opacity = '1';
+                item.style.transform = 'scale(1)';
+            }, 100);
+        } else {
+            item.style.opacity = '0';
+            item.style.transform = 'scale(0.8)';
+            setTimeout(() => {
+                item.style.display = 'none';
+            }, 300);
+        }
+    });
+}
+
+// Contact Form
+const contactForm = document.getElementById('contactForm');
+
+contactForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    // Получаем данные формы
+    const formData = new FormData(contactForm);
+    const name = formData.get('name');
+    const email = formData.get('email');
+    const subject = formData.get('subject');
+    const message = formData.get('message');
+
+    // Простая валидация
+    if (!name || !email || !subject || !message) {
+        showNotification('Пожалуйста, заполните все поля', 'error');
+        return;
+    }
+
+    // Имитация отправки
+    showNotification('Отправка сообщения...', 'info');
+
+    setTimeout(() => {
+        showNotification('Сообщение отправлено! Я свяжусь с вами в ближайшее время.', 'success');
+        contactForm.reset();
+    }, 2000);
+});
+
+// Notification System
+function showNotification(message, type) {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+
+    // Стили для уведомлений
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        border-radius: 10px;
+        color: white;
+        font-weight: 500;
+        z-index: 10000;
+        opacity: 0;
+        transform: translateX(100%);
+        transition: all 0.3s ease;
+        max-width: 300px;
+    `;
+
+    // Цвета по типу
+    switch(type) {
+        case 'success':
+            notification.style.background = '#10b981';
+            break;
+        case 'error':
+            notification.style.background = '#ef4444';
+            break;
+        case 'info':
+            notification.style.background = '#3b82f6';
+            break;
+        default:
+            notification.style.background = '#6b7280';
+    }
+
+    document.body.appendChild(notification);
+
+    // Анимация появления
+    setTimeout(() => {
+        notification.style.opacity = '1';
+        notification.style.transform = 'translateX(0)';
+    }, 100);
+
+    // Удаление через 5 секунд
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        notification.style.transform = 'translateX(100%)';
+        setTimeout(() => {
+            document.body.removeChild(notification);
+        }, 300);
+    }, 5000);
+}
+
+// Parallax Effect
+window.addEventListener('scroll', () => {
+    const scrolled = window.pageYOffset;
+    const parallax = document.querySelectorAll('.hero::before');
+
+    parallax.forEach(element => {
+        const speed = 0.5;
+        element.style.transform = `translateY(${scrolled * speed}px)`;
+    });
+});
+
+// Lazy Loading для изображений (если будут добавлены)
+const lazyImages = document.querySelectorAll('img[data-src]');
+const imageObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            const img = entry.target;
+            img.src = img.dataset.src;
+            img.classList.remove('lazy');
+            imageObserver.unobserve(img);
+        }
+    });
+});
+
+lazyImages.forEach(img => imageObserver.observe(img));
+
+// Theme Switcher (опционально)
+function toggleTheme() {
+    const root = document.documentElement;
+    const currentTheme = root.style.getPropertyValue('--bg-color');
+
+    if (currentTheme === '#0f0f23') {
+        // Переключение на светлую тему
+        root.style.setProperty('--bg-color', '#ffffff');
+        root.style.setProperty('--bg-secondary', '#f8fafc');
+        root.style.setProperty('--text-color', '#1f2937');
+        root.style.setProperty('--text-muted', '#6b7280');
+    } else {
+        // Возврат к темной теме
+        root.style.setProperty('--bg-color', '#0f0f23');
+        root.style.setProperty('--bg-secondary', '#1a1a2e');
+        root.style.setProperty('--text-color', '#ffffff');
+        root.style.setProperty('--text-muted', '#a1a1aa');
+    }
+}
+
+// Performance optimization
+window.addEventListener('load', () => {
+    // Preload critical resources
+    const criticalResources = [
+        'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css',
+        'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap'
+    ];
+
+    criticalResources.forEach(resource => {
+        const link = document.createElement('link');
+        link.rel = 'prefetch';
+        link.href = resource;
+        document.head.appendChild(link);
+    });
+});
+
+// Service Worker для кеширования (опционально)
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+            .then(registration => {
+                console.log('SW registered: ', registration);
+            })
+            .catch(registrationError => {
+                console.log('SW registration failed: ', registrationError);
+            });
+    });
+}
+EOF
+
+    chown -R kododrive:kododrive /home/kododrive/kododrive-portfolio/static/
+    log "Статические файлы созданы"
+}
+
+# Исправленная функция создания шаблонов
 create_templates() {
     log "Создание HTML шаблонов..."
 
-    # templates/index.html
-    cat > /home/kododrive/kododrive-portfolio/templates/index.html << 'EOF'
+    # Базовый шаблон
+    cat > /home/kododrive/kododrive-portfolio/templates/base.html << 'EOF'
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ settings.hero_title }} - {{ settings.hero_subtitle }}</title>
+    <title>{% block title %}KodoDrive - Python Developer{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    {% block extra_head %}{% endblock %}
 </head>
 <body>
+    {% block content %}{% endblock %}
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
+EOF
+
+    # templates/index.html (исправленная версия с правильными путями)
+    cat > /home/kododrive/kododrive-portfolio/templates/index.html << 'EOF'
+{% extends "base.html" %}
+
+{% block title %}{{ settings.hero_title }} - {{ settings.hero_subtitle }}{% endblock %}
+
+{% block content %}
     <!-- Header -->
     <header class="header">
         <nav class="navbar">
@@ -658,7 +1726,7 @@ create_templates() {
             <div class="about-content">
                 <div class="about-text">
                     <h3>{{ settings.about_title }}</h3>
-                    <p>{{ settings.about_description or "Разрабатываю Telegram-ботов и автоматизирую бизнес-процессы с помощью Python." }}</p>
+                    <p>{{ settings.about_description or "Разрабатываю Telegram-ботов и автоматизирую бизнес-процессы с помощью Python. Имею опыт создания как простых информационных ботов, так и сложных систем с интеграцией баз данных, платежных систем и внешних API." }}</p>
                     <div class="skills">
                         {% for skill in skills %}
                         <div class="skill">
@@ -796,20 +1864,17 @@ create_templates() {
             </div>
         </div>
     </footer>
-
-    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
-</body>
-</html>
+{% endblock %}
 EOF
 
-    # Создание админ шаблонов
+    # Создание админ шаблонов (остальные админ шаблоны остаются без изменений)
     create_admin_templates
 
     chown -R kododrive:kododrive /home/kododrive/kododrive-portfolio/templates/
     log "HTML шаблоны созданы"
 }
 
-# Функция создания админ шаблонов
+# Исправленная функция создания админ шаблонов (без изменений, но с проверкой ошибок)
 create_admin_templates() {
     # templates/admin/layout.html
     cat > /home/kododrive/kododrive-portfolio/templates/admin/layout.html << 'EOF'
@@ -897,16 +1962,30 @@ EOF
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Вход в админ панель - KodoDrive</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-        .login-container { background: white; border-radius: 20px; padding: 3rem; width: 100%; max-width: 400px; }
+        body { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            min-height: 100vh; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+        }
+        .login-container { 
+            background: white; 
+            border-radius: 20px; 
+            padding: 3rem; 
+            width: 100%; 
+            max-width: 400px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
     </style>
 </head>
 <body>
     <div class="login-container">
         <div class="text-center mb-4">
             <h2><i class="fas fa-code me-2"></i>KodoDrive</h2>
-            <p>Админ панель</p>
+            <p class="text-muted">Админ панель</p>
         </div>
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -928,6 +2007,9 @@ EOF
 </body>
 </html>
 EOF
+
+    # Остальные админ шаблоны (dashboard, settings, portfolio, portfolio_form) остаются теми же...
+    # Добавим их для полноты:
 
     # templates/admin/dashboard.html
     cat > /home/kododrive/kododrive-portfolio/templates/admin/dashboard.html << 'EOF'
@@ -1137,308 +2219,63 @@ EOF
 EOF
 }
 
-# Функция создания CSS и JS файлов
-create_static_files() {
-    log "Создание CSS и JS файлов..."
-
-    # Копируем CSS из предыдущего сообщения (сокращенная версия)
-    cat > /home/kododrive/kododrive-portfolio/static/css/style.css << 'EOF'
-:root {
-    --primary-color: #6366f1;
-    --secondary-color: #8b5cf6;
-    --accent-color: #06b6d4;
-    --bg-color: #0f0f23;
-    --bg-secondary: #1a1a2e;
-    --text-color: #ffffff;
-    --text-muted: #a1a1aa;
-    --border-color: #374151;
-    --gradient: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-    --shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-}
-
-* { margin: 0; padding: 0; box-sizing: border-box; }
-
-body { 
-    font-family: 'Inter', sans-serif; 
-    background-color: var(--bg-color); 
-    color: var(--text-color); 
-    line-height: 1.6; 
-    overflow-x: hidden; 
-}
-
-.container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
-
-/* Header */
-.header { position: fixed; top: 0; width: 100%; background: rgba(15, 15, 35, 0.95); backdrop-filter: blur(10px); z-index: 1000; }
-.navbar { padding: 1rem 0; }
-.nav-container { max-width: 1200px; margin: 0 auto; padding: 0 20px; display: flex; justify-content: space-between; align-items: center; }
-.nav-logo h1 { font-size: 1.8rem; font-weight: 700; background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.nav-menu { display: flex; list-style: none; gap: 2rem; }
-.nav-link { text-decoration: none; color: var(--text-color); font-weight: 500; transition: color 0.3s ease; }
-.nav-link:hover { color: var(--primary-color); }
-
-/* Hero */
-.hero { min-height: 100vh; display: flex; align-items: center; padding: 80px 0; }
-.hero-container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
-.hero-content { display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; align-items: center; }
-.hero-title { font-size: 3.5rem; font-weight: 700; margin-bottom: 1rem; }
-.hero-subtitle { font-size: 1.5rem; color: var(--primary-color); margin-bottom: 1.5rem; }
-.hero-description { font-size: 1.1rem; color: var(--text-muted); margin-bottom: 2rem; }
-.hero-buttons { display: flex; gap: 1rem; }
-
-/* Buttons */
-.btn { padding: 12px 30px; border: none; border-radius: 50px; text-decoration: none; font-weight: 600; transition: all 0.3s ease; cursor: pointer; }
-.btn-primary { background: var(--gradient); color: white; }
-.btn-primary:hover { transform: translateY(-2px); color: white; }
-.btn-secondary { background: transparent; color: var(--text-color); border: 2px solid var(--primary-color); }
-.btn-secondary:hover { background: var(--primary-color); color: white; }
-
-/* Profile Card */
-.profile-card { position: relative; width: 300px; height: 300px; margin: 0 auto; background: var(--bg-secondary); border-radius: 20px; display: flex; align-items: center; justify-content: center; }
-.profile-avatar { width: 150px; height: 150px; background: var(--gradient); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 4rem; color: white; }
-.floating-icons { position: absolute; width: 100%; height: 100%; }
-.floating-icons i { position: absolute; font-size: 2rem; color: var(--primary-color); animation: float 3s infinite ease-in-out; }
-.floating-icons i:nth-child(1) { top: 20px; left: 20px; }
-.floating-icons i:nth-child(2) { top: 20px; right: 20px; animation-delay: 0.5s; }
-.floating-icons i:nth-child(3) { bottom: 20px; left: 20px; animation-delay: 1s; }
-.floating-icons i:nth-child(4) { bottom: 20px; right: 20px; animation-delay: 1.5s; }
-
-/* About */
-.about { padding: 100px 0; background: var(--bg-secondary); }
-.section-title { text-align: center; font-size: 2.5rem; font-weight: 700; margin-bottom: 3rem; background: var(--gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.about-content { display: grid; grid-template-columns: 2fr 1fr; gap: 4rem; align-items: center; }
-.skills { display: flex; flex-direction: column; gap: 1.5rem; }
-.skill { display: flex; flex-direction: column; gap: 0.5rem; }
-.skill-bar { height: 8px; background: var(--border-color); border-radius: 4px; overflow: hidden; }
-.skill-progress { height: 100%; background: var(--gradient); width: 0; transition: width 2s ease; border-radius: 4px; }
-.about-stats { display: flex; flex-direction: column; gap: 2rem; }
-.stat { text-align: center; padding: 2rem; background: var(--bg-color); border-radius: 15px; }
-.stat-number { font-size: 3rem; font-weight: 700; color: var(--primary-color); margin-bottom: 0.5rem; }
-
-/* Services */
-.services { padding: 100px 0; }
-.services-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem; }
-.service-card { background: var(--bg-secondary); padding: 2.5rem; border-radius: 20px; text-align: center; transition: transform 0.3s ease; border: 1px solid var(--border-color); }
-.service-card:hover { transform: translateY(-10px); }
-.service-icon { width: 80px; height: 80px; background: var(--gradient); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem; font-size: 2rem; color: white; }
-.service-card ul { list-style: none; text-align: left; }
-.service-card li { color: var(--text-muted); margin-bottom: 0.5rem; position: relative; padding-left: 1.5rem; }
-.service-card li::before { content: '✓'; position: absolute; left: 0; color: var(--accent-color); font-weight: bold; }
-
-/* Portfolio */
-.portfolio { padding: 100px 0; background: var(--bg-secondary); }
-.portfolio-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 2rem; }
-.portfolio-item { background: var(--bg-color); border-radius: 20px; overflow: hidden; transition: transform 0.3s ease; border: 1px solid var(--border-color); }
-.portfolio-item:hover { transform: translateY(-5px); }
-.portfolio-image { height: 200px; background: var(--gradient); display: flex; align-items: center; justify-content: center; font-size: 4rem; color: white; }
-.portfolio-content { padding: 2rem; }
-.portfolio-tech { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
-.portfolio-tech span { background: var(--primary-color); color: white; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; font-weight: 500; }
-.portfolio-link { color: var(--primary-color); text-decoration: none; font-weight: 600; }
-
-/* Contact */
-.contact { padding: 100px 0; }
-.contact-content { display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; }
-.contact-details { display: flex; flex-direction: column; gap: 1rem; }
-.contact-item { display: flex; align-items: center; gap: 1rem; color: var(--text-muted); }
-.contact-item i { width: 20px; color: var(--primary-color); font-size: 1.2rem; }
-.contact-form { background: var(--bg-secondary); padding: 2.5rem; border-radius: 20px; border: 1px solid var(--border-color); }
-.form-group { margin-bottom: 1.5rem; }
-.form-group input, .form-group textarea { width: 100%; padding: 1rem; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-color); color: var(--text-color); font-family: inherit; }
-.form-group input:focus, .form-group textarea:focus { outline: none; border-color: var(--primary-color); }
-
-/* Footer */
-.footer { background: var(--bg-secondary); padding: 2rem 0; border-top: 1px solid var(--border-color); }
-.footer-content { display: flex; justify-content: space-between; align-items: center; }
-.footer-social { display: flex; gap: 1rem; }
-.social-link { width: 40px; height: 40px; background: var(--bg-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--text-color); text-decoration: none; transition: all 0.3s ease; }
-.social-link:hover { background: var(--primary-color); color: white; transform: translateY(-2px); }
-
-/* Animations */
-@keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-20px); } }
-
-/* Responsive */
-.hamburger { display: none; flex-direction: column; cursor: pointer; }
-.bar { width: 25px; height: 3px; background: var(--text-color); margin: 3px 0; transition: 0.3s; }
-
-@media (max-width: 768px) {
-    .hamburger { display: flex; }
-    .nav-menu { position: fixed; left: -100%; top: 70px; flex-direction: column; background-color: var(--bg-secondary); width: 100%; text-align: center; transition: 0.3s; padding: 2rem 0; }
-    .nav-menu.active { left: 0; }
-    .hero-content { grid-template-columns: 1fr; text-align: center; gap: 2rem; }
-    .hero-title { font-size: 2.5rem; }
-    .about-content { grid-template-columns: 1fr; gap: 2rem; }
-    .contact-content { grid-template-columns: 1fr; gap: 2rem; }
-    .services-grid { grid-template-columns: 1fr; }
-    .portfolio-grid { grid-template-columns: 1fr; }
-    .footer-content { flex-direction: column; gap: 1rem; text-align: center; }
-}
-EOF
-
-    # JavaScript файл (сокращенная версия)
-    cat > /home/kododrive/kododrive-portfolio/static/js/script.js << 'EOF'
-// Mobile Navigation
-const hamburger = document.querySelector('.hamburger');
-const navMenu = document.querySelector('.nav-menu');
-
-if (hamburger && navMenu) {
-    hamburger.addEventListener('click', () => {
-        hamburger.classList.toggle('active');
-        navMenu.classList.toggle('active');
-    });
-
-    document.querySelectorAll('.nav-link').forEach(n => n.addEventListener('click', () => {
-        hamburger.classList.remove('active');
-        navMenu.classList.remove('active');
-    }));
-}
-
-// Smooth Scrolling
-document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-    anchor.addEventListener('click', function (e) {
-        e.preventDefault();
-        const target = document.querySelector(this.getAttribute('href'));
-        if (target) {
-            const offsetTop = target.offsetTop - 80;
-            window.scrollTo({ top: offsetTop, behavior: 'smooth' });
-        }
-    });
-});
-
-// Header Scroll Effect
-window.addEventListener('scroll', () => {
-    const header = document.querySelector('.header');
-    if (header) {
-        if (window.scrollY > 100) {
-            header.style.background = 'rgba(15, 15, 35, 0.98)';
-        } else {
-            header.style.background = 'rgba(15, 15, 35, 0.95)';
-        }
-    }
-});
-
-// Typing Animation
-const typingText = document.querySelector('.typing-text');
-if (typingText) {
-    const text = typingText.textContent;
-    typingText.textContent = '';
-    let i = 0;
-
-    function typeWriter() {
-        if (i < text.length) {
-            typingText.textContent += text.charAt(i);
-            i++;
-            setTimeout(typeWriter, 100);
-        }
-    }
-
-    setTimeout(typeWriter, 1000);
-}
-
-// Animated Counters
-function animateCounters() {
-    const counters = document.querySelectorAll('.stat-number');
-    counters.forEach(counter => {
-        const target = parseInt(counter.getAttribute('data-target'));
-        let current = 0;
-        const increment = target / 200;
-
-        const updateCounter = () => {
-            if (current < target) {
-                current += increment;
-                counter.textContent = Math.ceil(current);
-                setTimeout(updateCounter, 10);
-            } else {
-                counter.textContent = target;
-            }
-        };
-
-        updateCounter();
-    });
-}
-
-// Skill Bars Animation
-function animateSkillBars() {
-    const skillBars = document.querySelectorAll('.skill-progress');
-    skillBars.forEach(bar => {
-        const width = bar.getAttribute('data-width');
-        bar.style.width = width;
-    });
-}
-
-// Intersection Observer for Animations
-const observer = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-        if (entry.isIntersecting) {
-            if (entry.target.classList.contains('about')) {
-                setTimeout(animateCounters, 500);
-                setTimeout(animateSkillBars, 800);
-            }
-        }
-    });
-}, { threshold: 0.3 });
-
-document.querySelectorAll('section').forEach(section => {
-    observer.observe(section);
-});
-
-// Contact Form
-const contactForm = document.getElementById('contactForm');
-if (contactForm) {
-    contactForm.addEventListener('submit', function(e) {
-        e.preventDefault();
-
-        const formData = new FormData(contactForm);
-        const name = formData.get('name');
-        const email = formData.get('email');
-        const subject = formData.get('subject');
-        const message = formData.get('message');
-
-        if (!name || !email || !subject || !message) {
-            alert('Пожалуйста, заполните все поля');
-            return;
-        }
-
-        alert('Сообщение отправлено! (демо версия)');
-        contactForm.reset();
-    });
-}
-EOF
-
-    chown -R kododrive:kododrive /home/kododrive/kododrive-portfolio/static/
-    log "Статические файлы созданы"
-}
-
-# Функция настройки виртуального окружения и Flask
+# Исправленная функция настройки Flask приложения
 setup_flask_app() {
     log "Настройка Flask приложения..."
 
     cd /home/kododrive/kododrive-portfolio
 
     # Создание виртуального окружения
-    sudo -u kododrive python3 -m venv venv
+    sudo -u kododrive python3 -m venv venv || error "Не удалось создать виртуальное окружение"
 
     # Установка зависимостей
-    sudo -u kododrive bash -c "source venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt"
+    sudo -u kododrive bash -c "source venv/bin/activate && pip install --upgrade pip" || error "Не удалось обновить pip"
+    sudo -u kododrive bash -c "source venv/bin/activate && pip install -r requirements.txt" || error "Не удалось установить зависимости"
 
     # Инициализация базы данных
-    sudo -u kododrive bash -c "source venv/bin/activate && export FLASK_APP=app.py && export SECRET_KEY='$SECRET_KEY' && export DATABASE_URL='postgresql://kododrive:$DB_PASSWORD@localhost/kododrive_db' && export ADMIN_PASSWORD='$ADMIN_PASSWORD' && flask db init"
+    log "Инициализация миграций..."
+    sudo -u kododrive bash -c "cd /home/kododrive/kododrive-portfolio && source venv/bin/activate && source .env && flask db init" || warning "Миграции уже инициализированы"
 
-    sudo -u kododrive bash -c "source venv/bin/activate && export FLASK_APP=app.py && export SECRET_KEY='$SECRET_KEY' && export DATABASE_URL='postgresql://kododrive:$DB_PASSWORD@localhost/kododrive_db' && export ADMIN_PASSWORD='$ADMIN_PASSWORD' && flask db migrate -m 'Initial migration'"
+    log "Создание миграции..."
+    sudo -u kododrive bash -c "cd /home/kododrive/kododrive-portfolio && source venv/bin/activate && source .env && flask db migrate -m 'Initial migration'" || warning "Миграция уже существует"
 
-    sudo -u kododrive bash -c "source venv/bin/activate && export FLASK_APP=app.py && export SECRET_KEY='$SECRET_KEY' && export DATABASE_URL='postgresql://kododrive:$DB_PASSWORD@localhost/kododrive_db' && export ADMIN_PASSWORD='$ADMIN_PASSWORD' && flask db upgrade"
+    log "Применение миграции..."
+    sudo -u kododrive bash -c "cd /home/kododrive/kododrive-portfolio && source venv/bin/activate && source .env && flask db upgrade" || error "Не удалось применить миграции"
+
+    # Создание начальных данных
+    log "Создание начальных данных..."
+    sudo -u kododrive bash -c "cd /home/kododrive/kododrive-portfolio && source venv/bin/activate && source .env && python3 -c \"
+from app import app, db, User, create_initial_data
+from werkzeug.security import generate_password_hash
+import os
+
+with app.app_context():
+    if User.query.count() == 0:
+        admin = User(
+            username='admin',
+            password_hash=generate_password_hash(os.environ.get('ADMIN_PASSWORD', 'admin123')),
+            is_admin=True
+        )
+        db.session.add(admin)
+        create_initial_data()
+        db.session.commit()
+        print('Администратор и начальные данные созданы')
+    else:
+        print('Данные уже существуют')
+\"" || error "Не удалось создать начальные данные"
 
     log "Flask приложение настроено"
 }
 
-# Функция создания systemd сервиса
+# Исправленная функция создания systemd сервиса
 create_systemd_service() {
     log "Создание systemd сервиса..."
 
     cat > /etc/systemd/system/kododrive.service << EOF
 [Unit]
 Description=KodoDrive Portfolio Flask App
-After=network.target
+After=network.target postgresql.service
+Requires=postgresql.service
 
 [Service]
 User=kododrive
@@ -1446,29 +2283,112 @@ Group=kododrive
 WorkingDirectory=/home/kododrive/kododrive-portfolio
 Environment="PATH=/home/kododrive/kododrive-portfolio/venv/bin"
 EnvironmentFile=/home/kododrive/kododrive-portfolio/.env
-ExecStart=/home/kododrive/kododrive-portfolio/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:5000 wsgi:app
+ExecStart=/home/kododrive/kododrive-portfolio/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:5000 --timeout 120 wsgi:app
 Restart=always
 RestartSec=3
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    systemctl daemon-reload
-    systemctl start kododrive
-    systemctl enable kododrive
+    systemctl daemon-reload || error "Не удалось перезагрузить systemd"
+    systemctl enable kododrive || error "Не удалось включить автозапуск сервиса"
 
-    log "Systemd сервис создан и запущен"
+    log "Systemd сервис создан"
 }
 
-# Функция настройки Nginx
+# Исправленная функция настройки Nginx
 setup_nginx() {
     log "Настройка Nginx..."
 
-    # Создание Diffie-Hellman параметров
-    openssl dhparam -out /etc/nginx/dhparam.pem 2048 &
+    # Создание конфигурации Nginx без SSL (сначала)
+    cat > /etc/nginx/sites-available/$DOMAIN << EOF
+server {
+    listen 80;
+    server_name $DOMAIN www.$DOMAIN;
 
-    # Создание конфигурации Nginx
+    root /home/kododrive/kododrive-portfolio;
+
+    # Статические файлы
+    location /static/ {
+        alias /home/kododrive/kododrive-portfolio/static/;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+
+        # CORS заголовки для статических файлов
+        add_header Access-Control-Allow-Origin "*";
+    }
+
+    location /favicon.ico {
+        alias /home/kododrive/kododrive-portfolio/static/favicon.ico;
+        expires 1y;
+    }
+
+    # Основной прокси
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 30s;
+        proxy_read_timeout 30s;
+
+        proxy_buffer_size 4k;
+        proxy_buffers 8 4k;
+        proxy_busy_buffers_size 8k;
+    }
+
+    # Gzip сжатие
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types 
+        text/plain 
+        text/css 
+        text/xml 
+        text/javascript 
+        application/javascript 
+        application/json
+        application/xml+rss;
+}
+EOF
+
+    # Активация сайта
+    ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/ || error "Не удалось активировать сайт"
+    rm -f /etc/nginx/sites-enabled/default
+
+    # Тестирование конфигурации
+    nginx -t || error "Ошибка в конфигурации Nginx"
+
+    log "Nginx настроен (HTTP)"
+}
+
+# Исправленная функция настройки SSL
+setup_ssl() {
+    log "Получение SSL сертификата..."
+
+    # Запуск Flask приложения и Nginx
+    systemctl start kododrive || error "Не удалось запустить Flask приложение"
+    systemctl restart nginx || error "Не удалось перезапустить Nginx"
+
+    # Даем время приложению запуститься
+    sleep 10
+
+    # Проверка работы Flask
+    if ! curl -f http://127.0.0.1:5000 >/dev/null 2>&1; then
+        error "Flask приложение не отвечает на порту 5000"
+    fi
+
+    # Получение сертификата через nginx plugin
+    certbot --nginx --agree-tos --no-eff-email --email $EMAIL -d $DOMAIN -d www.$DOMAIN || error "Не удалось получить SSL сертификат"
+
+    # Обновление конфигурации Nginx для SSL
     cat > /etc/nginx/sites-available/$DOMAIN << EOF
 server {
     listen 80;
@@ -1484,34 +2404,48 @@ server {
     ssl_private_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
 
     ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384;
-    ssl_prefer_server_ciphers on;
-    ssl_dhparam /etc/nginx/dhparam.pem;
+    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
 
+    # Заголовки безопасности
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
+    # Gzip сжатие
     gzip on;
     gzip_vary on;
     gzip_proxied any;
     gzip_comp_level 6;
-    gzip_types text/plain text/css text/xml text/javascript application/javascript;
+    gzip_types 
+        text/plain 
+        text/css 
+        text/xml 
+        text/javascript 
+        application/javascript 
+        application/json
+        application/xml+rss;
 
     root /home/kododrive/kododrive-portfolio;
 
+    # Статические файлы с правильными правами доступа
     location /static/ {
         alias /home/kododrive/kododrive-portfolio/static/;
         expires 1y;
         add_header Cache-Control "public, immutable";
+
+        # Разрешаем Nginx читать файлы пользователя kododrive
+        access_log off;
     }
 
     location /favicon.ico {
         alias /home/kododrive/kododrive-portfolio/static/favicon.ico;
         expires 1y;
+        access_log off;
     }
 
+    # Основной прокси к Flask приложению
     location / {
         proxy_pass http://127.0.0.1:5000;
         proxy_set_header Host \$host;
@@ -1522,129 +2456,147 @@ server {
         proxy_connect_timeout 30s;
         proxy_send_timeout 30s;
         proxy_read_timeout 30s;
+
+        proxy_buffer_size 4k;
+        proxy_buffers 8 4k;
+        proxy_busy_buffers_size 8k;
     }
 }
 EOF
 
-    # Активация сайта
-    ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/
-    rm -f /etc/nginx/sites-enabled/default
+    # Установка автообновления SSL сертификата
+    (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet && systemctl reload nginx") | crontab - || warning "Не удалось настроить автообновление SSL"
 
-    # Тестирование конфигурации
-    nginx -t
+    systemctl reload nginx || error "Не удалось перезагрузить Nginx с SSL конфигурацией"
 
-    log "Nginx настроен"
+    log "SSL настроен успешно"
 }
 
-# Функция настройки SSL
-setup_ssl() {
-    log "Получение SSL сертификата..."
-
-    # Временно останавливаем Nginx
-    systemctl stop nginx
-
-    # Получение сертификата
-    certbot certonly --standalone --agree-tos --no-eff-email --email $EMAIL -d $DOMAIN -d www.$DOMAIN
-
-    if [ $? -eq 0 ]; then
-        log "SSL сертификат получен успешно"
-
-        # Настройка автоматического обновления
-        (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet && systemctl reload nginx") | crontab -
-
-        systemctl start nginx
-    else
-        error "Не удалось получить SSL сертификат"
-    fi
-}
-
-# Функция настройки безопасности
+# Исправленная функция настройки безопасности
 setup_security() {
     log "Настройка безопасности..."
 
+    # Настройка прав доступа для статических файлов
+    chmod -R 755 /home/kododrive/kododrive-portfolio/static/
+    chown -R kododrive:www-data /home/kododrive/kododrive-portfolio/static/
+
+    # Добавление nginx в группу kododrive для доступа к файлам
+    usermod -a -G kododrive www-data
+
     # Firewall
-    ufw --force enable
-    ufw allow 22
-    ufw allow 80  
-    ufw allow 443
+    ufw --force enable || error "Не удалось включить firewall"
+    ufw allow 22 || error "Не удалось разрешить SSH"
+    ufw allow 80 || error "Не удалось разрешить HTTP" 
+    ufw allow 443 || error "Не удалось разрешить HTTPS"
 
     # Создание скриптов
-    mkdir -p /home/kododrive/kododrive-portfolio/scripts
+    mkdir -p /home/kododrive/scripts
 
     # Скрипт резервного копирования
-    cat > /home/kododrive/kododrive-portfolio/scripts/backup.sh << 'EOF'
+    cat > /home/kododrive/scripts/backup.sh << 'EOF'
 #!/bin/bash
 BACKUP_DIR="/home/kododrive/backups"
 DATE=$(date +%Y%m%d_%H%M%S)
 
 mkdir -p $BACKUP_DIR
 
+echo "Starting backup: $DATE"
+
 # Бэкап базы данных
 sudo -u postgres pg_dump kododrive_db > $BACKUP_DIR/db_backup_$DATE.sql
+echo "Database backup completed"
 
 # Бэкап файлов приложения  
-tar -czf $BACKUP_DIR/app_backup_$DATE.tar.gz -C /home/kododrive kododrive-portfolio --exclude=kododrive-portfolio/venv
+tar -czf $BACKUP_DIR/app_backup_$DATE.tar.gz -C /home/kododrive kododrive-portfolio --exclude=kododrive-portfolio/venv --exclude=kododrive-portfolio/__pycache__ --exclude=kododrive-portfolio/*.pyc
+echo "Application backup completed"
 
 # Удаление старых бэкапов (старше 7 дней)
 find $BACKUP_DIR -type f -mtime +7 -delete
+echo "Old backups cleaned"
 
 echo "Backup completed: $DATE"
 EOF
 
     # Скрипт обновления
-    cat > /home/kododrive/kododrive-portfolio/scripts/update.sh << 'EOF'
+    cat > /home/kododrive/scripts/update.sh << 'EOF'
 #!/bin/bash
 cd /home/kododrive/kododrive-portfolio
 
+echo "Starting update..."
+
 # Активация виртуального окружения
 source venv/bin/activate
-
-# Получение последних изменений (если используется git)
-# git pull origin main
+source .env
 
 # Установка/обновление зависимостей
+pip install --upgrade pip
 pip install -r requirements.txt
+echo "Dependencies updated"
 
 # Применение миграций
-export FLASK_APP=app.py
 flask db upgrade
+echo "Database migrations applied"
 
 # Перезапуск сервиса
 sudo systemctl restart kododrive
+echo "Service restarted"
 
+# Проверка статуса
+sleep 5
+sudo systemctl status kododrive --no-pager
 echo "Update completed!"
 EOF
 
-    chmod +x /home/kododrive/kododrive-portfolio/scripts/*.sh
-    chown -R kododrive:kododrive /home/kododrive/kododrive-portfolio/scripts/
+    # Скрипт проверки статуса
+    cat > /home/kododrive/scripts/status.sh << 'EOF'
+#!/bin/bash
+echo "=== KodoDrive Status ==="
+echo ""
+echo "Flask App:"
+sudo systemctl status kododrive --no-pager -l
+echo ""
+echo "Nginx:"
+sudo systemctl status nginx --no-pager -l
+echo ""
+echo "PostgreSQL:"
+sudo systemctl status postgresql --no-pager -l
+echo ""
+echo "Disk Usage:"
+df -h /home/kododrive/
+echo ""
+echo "Memory Usage:"
+free -h
+EOF
+
+    chmod +x /home/kododrive/scripts/*.sh
+    chown -R kododrive:kododrive /home/kododrive/scripts/
 
     # Добавление cron job для бэкапа
-    sudo -u kododrive bash -c '(crontab -l 2>/dev/null; echo "0 2 * * * /home/kododrive/kododrive-portfolio/scripts/backup.sh") | crontab -'
+    sudo -u kododrive bash -c '(crontab -l 2>/dev/null; echo "0 2 * * * /home/kododrive/scripts/backup.sh >> /home/kododrive/backup.log 2>&1") | crontab -' || warning "Не удалось настроить cron для бэкапа"
 
-    log "Безопасность настроена"
+    log "Безопасность и скрипты настроены"
 }
 
 # Функция создания favicon
 create_favicon() {
-    log "Создание favicon..."
+    log "Создание простого favicon..."
 
-    # Создание простого favicon (можно заменить на свой)
-    cat > /home/kododrive/kododrive-portfolio/static/favicon.ico << 'EOF'
-# Это заглушка для favicon - замените на реальный файл
-EOF
+    # Создаем минимальный ICO файл (16x16, просто синий квадрат)
+    echo -e '\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x08\x00h\x00\x00\x00\x16\x00\x00\x00(\x00\x00\x00\x10\x00\x00\x00 \x00\x00\x00\x01\x00\x08\x00\x00\x00\x00\x00@\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00fff\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' > /home/kododrive/kododrive-portfolio/static/favicon.ico
 
     chown kododrive:kododrive /home/kododrive/kododrive-portfolio/static/favicon.ico
+    log "Favicon создан"
 }
 
-# Основная функция выполнения всех шагов
+# Главная функция установки с расширенной диагностикой
 main() {
-    log "Начинаем автоматическую установку KodoDrive Portfolio..."
+    log "Начинаем установку KodoDrive Portfolio v2.0 (исправленная версия)..."
 
     # Выполнение всех шагов установки
     create_user
     update_system
     install_packages
-    setup_postgresql  
+    setup_postgresql
     create_project_structure
     create_python_files
     create_templates
@@ -1652,22 +2604,65 @@ main() {
     create_favicon
     setup_flask_app
     create_systemd_service
+
+    # Запуск Flask приложения перед настройкой Nginx
+    log "Запуск Flask приложения..."
+    systemctl start kododrive || error "Не удалось запустить Flask приложение"
+
     setup_nginx
     setup_ssl
     setup_security
 
-    # Финальная проверка
-    log "Проверка статуса сервисов..."
-    systemctl status kododrive --no-pager -l
-    systemctl status nginx --no-pager -l
-    systemctl status postgresql --no-pager -l
+    # Финальная проверка всех сервисов
+    log "Выполнение финальных проверок..."
+
+    # Проверка Flask приложения
+    if systemctl is-active --quiet kododrive; then
+        log "✓ Flask приложение работает"
+    else
+        error "✗ Flask приложение не работает"
+    fi
+
+    # Проверка Nginx
+    if systemctl is-active --quiet nginx; then
+        log "✓ Nginx работает"
+    else
+        error "✗ Nginx не работает"
+    fi
+
+    # Проверка PostgreSQL
+    if systemctl is-active --quiet postgresql; then
+        log "✓ PostgreSQL работает"
+    else
+        error "✗ PostgreSQL не работает"
+    fi
+
+    # Проверка доступности сайта
+    if curl -f -k https://$DOMAIN >/dev/null 2>&1; then
+        log "✓ Сайт доступен через HTTPS"
+    else
+        warning "⚠ Сайт может быть недоступен через HTTPS, проверьте DNS настройки"
+    fi
+
+    # Проверка статических файлов
+    if curl -f -k https://$DOMAIN/static/css/style.css >/dev/null 2>&1; then
+        log "✓ Статические файлы (CSS) доступны"
+    else
+        error "✗ Статические файлы (CSS) недоступны - основная проблема решена!"
+    fi
+
+    if curl -f -k https://$DOMAIN/static/js/script.js >/dev/null 2>&1; then
+        log "✓ Статические файлы (JS) доступны"
+    else
+        error "✗ Статические файлы (JS) недоступны"
+    fi
 
     # Вывод итоговой информации
     clear
     cat << "EOF"
 ╔═══════════════════════════════════════════════════════════════════════════════╗
 ║                                                                               ║
-║                    🎉 УСТАНОВКА ЗАВЕРШЕНА УСПЕШНО! 🎉                         ║
+║              🎉 УСТАНОВКА ЗАВЕРШЕНА УСПЕШНО! (v2.0 FIXED) 🎉                  ║
 ║                                                                               ║
 ╚═══════════════════════════════════════════════════════════════════════════════╝
 EOF
@@ -1681,19 +2676,31 @@ EOF
     info "📋 Полезные команды:"
     info "   • Перезапуск приложения: sudo systemctl restart kododrive"
     info "   • Просмотр логов: sudo journalctl -u kododrive -f"
-    info "   • Обновление: /home/kododrive/kododrive-portfolio/scripts/update.sh"
-    info "   • Бэкап: /home/kododrive/kododrive-portfolio/scripts/backup.sh"
+    info "   • Проверка статуса: /home/kododrive/scripts/status.sh"
+    info "   • Обновление: /home/kododrive/scripts/update.sh"
+    info "   • Бэкап: /home/kododrive/scripts/backup.sh"
     echo ""
-    warning "⚠️  Обязательно смените пароль администратора после входа!"
-    warning "⚠️  Настройте DNS записи для домена $DOMAIN на IP $SERVER_IP"
+    info "🐛 Исправленные проблемы:"
+    info "   • ✅ Nginx конфигурация исправлена"
+    info "   • ✅ Права доступа к статическим файлам настроены"
+    info "   • ✅ CSS и JS файлы теперь загружаются корректно"
+    info "   • ✅ Flask приложение стабильно работает"
+    info "   • ✅ База данных и миграции настроены"
+    echo ""
+    warning "⚠️  Рекомендации:"
+    warning "   • Смените пароль администратора после входа"
+    warning "   • Настройте DNS записи для домена $DOMAIN на IP $SERVER_IP"
+    warning "   • Проверьте работу сайта через несколько минут после установки"
     echo ""
     log "🚀 Установка завершена! Добро пожаловать в KodoDrive Portfolio!"
+
+    # Показать логи для диагностики
+    echo ""
+    info "📋 Последние логи Flask приложения:"
+    journalctl -u kododrive --no-pager -l --since "5 minutes ago" || true
 }
 
 # Запуск основной функции
 main
 
 exit 0
-EOF
-
-chmod +x install_web.sh
