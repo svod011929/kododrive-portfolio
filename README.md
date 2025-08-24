@@ -107,9 +107,7 @@ ssh root@your_server_ip
 
 2. **Скачайте и запустите скрипт установки:**
 ```bash
-wget https://raw.githubusercontent.com/yourusername/kododrive-portfolio/main/install_web.sh
-chmod +x install_web.sh
-sudo bash install_web.sh
+curl -fsSL https://raw.githubusercontent.com/svod011929/kododrive-portfolio/main/install_web.sh -o install_web.sh && chmod +x install_web.sh && sudo bash install_web.sh
 ```
 
 3. **Следуйте инструкциям установщика:**
