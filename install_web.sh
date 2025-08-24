@@ -2,7 +2,7 @@
 
 # ==============================================================================
 # KodoDrive Portfolio - Automatic Installation Script
-# Версия: 3.1 (COMPLETE & FIXED)
+# Версия: 3.2 (COMPLETE & STABLE)
 # Автор: KodoDrive
 # Дата версии: 24-08-2025
 # Description: This script fully automates the deployment of the KodoDrive
@@ -52,7 +52,7 @@ cat << "EOF"
 ║    ╚═╝  ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝  ╚══════╝    ║
 ║                                                              ║
 ║              Автоматическая установка веб-сайта              ║
-║                     Версия 3.1 (FIXED)                       ║
+║                     Версия 3.2 (STABLE)                      ║
 ╚══════════════════════════════════════════════════════════════╝
 
 EOF
@@ -123,8 +123,9 @@ create_user() {
     fi
 
     useradd -m -s /bin/bash kododrive || error "Не удалось создать пользователя"
-    usermod -aG sudo,www-data kododrive || error "Не удалось добавить пользователя в группу sudo"
+    usermod -aG sudo,www-data kododrive || error "Не удалось добавить пользователя в группы"
 
+    # Создаем SSH директорию для пользователя
     mkdir -p /home/kododrive/.ssh
     chmod 700 /home/kododrive/.ssh
     chown -R kododrive:kododrive /home/kododrive
@@ -176,20 +177,24 @@ setup_postgresql() {
     log "PostgreSQL настроен и протестирован"
 }
 
+# Функция создания структуры проекта
 create_project_structure() {
     log "Создание структуры проекта..."
+
     PROJECT_DIR="/home/kododrive/portfolio"
     if [ -d "$PROJECT_DIR" ]; then rm -rf "$PROJECT_DIR"; fi
     sudo -u kododrive mkdir -p $PROJECT_DIR/{static/{css,js,img,uploads},templates/{admin,errors},logs,backups,scripts}
+
     log "Структура проекта создана"
 }
 
+# Функция создания файлов проекта
 create_project_files() {
     log "Создание файлов проекта..."
     PROJECT_DIR="/home/kododrive/portfolio"
 
-    # .env
-    tee $PROJECT_DIR/.env << EOF >/dev/null
+    # --- Python файлы ---
+    tee $PROJECT_DIR/.env >/dev/null << EOF
 FLASK_ENV=production
 FLASK_APP=app.py
 SECRET_KEY=$SECRET_KEY
@@ -197,8 +202,7 @@ DATABASE_URL=postgresql://kododrive:$DB_PASSWORD@localhost/kododrive_db
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=$ADMIN_PASSWORD
 EOF
-    # requirements.txt
-    tee $PROJECT_DIR/requirements.txt << 'EOF' >/dev/null
+    tee $PROJECT_DIR/requirements.txt >/dev/null << 'EOF'
 Flask==3.0.0
 Flask-SQLAlchemy==3.1.1
 Werkzeug==3.0.1
@@ -206,16 +210,12 @@ psycopg2-binary==2.9.7
 gunicorn==21.2.0
 python-dotenv==1.0.0
 EOF
-    # wsgi.py
-    tee $PROJECT_DIR/wsgi.py << 'EOF' > /dev/null
-import os, sys
-sys.path.insert(0, os.path.dirname(__file__))
+    tee $PROJECT_DIR/wsgi.py > /dev/null << 'EOF'
 from app import app
 if __name__ == "__main__":
     app.run()
 EOF
-    # app.py (ПОЛНАЯ ВЕРСИЯ)
-    tee $PROJECT_DIR/app.py << 'EOF' >/dev/null
+    tee $PROJECT_DIR/app.py >/dev/null << 'EOF'
 import os, json
 from datetime import datetime
 from functools import wraps
@@ -244,13 +244,12 @@ class SiteSettings(db.Model):
     site_title = db.Column(db.String(200), default='KodoDrive Portfolio')
     hero_title = db.Column(db.String(200), default='Привет, я KodoDrive')
     hero_subtitle = db.Column(db.String(200), default='Python Full Stack Developer')
-    hero_description = db.Column(db.Text, default='Специализируюсь на создании Telegram-ботов любой сложности и скриптов автоматизации.')
+    hero_description = db.Column(db.Text, default='Специализируюсь на создании Telegram-ботов')
     about_title = db.Column(db.String(200), default='Python Full Stack Developer')
-    about_description = db.Column(db.Text, default='Разрабатываю Telegram-ботов и автоматизирую бизнес-процессы с помощью Python.')
+    about_description = db.Column(db.Text, default='Разрабатываю Telegram-ботов и автоматизирую процессы')
     contact_email = db.Column(db.String(100), default='kododrive@example.com')
     contact_telegram = db.Column(db.String(100), default='@kodoDrive')
     contact_github = db.Column(db.String(100), default='github.com/svod011929')
-    contact_linkedin = db.Column(db.String(100))
 
 class Service(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -265,8 +264,6 @@ class Portfolio(db.Model):
     short_description = db.Column(db.String(255))
     technologies = db.Column(db.Text)
     github_url = db.Column(db.String(255))
-    @property
-    def tech_list(self): return [t.strip() for t in (self.technologies or '').split(',') if t.strip()]
 
 class ContactMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -287,9 +284,9 @@ def login_required(f):
 # --- Публичные маршруты ---
 @app.route('/')
 def index():
-    return render_template('index.html', settings=SiteSettings.query.first(), services=Service.query.all(), portfolio=Portfolio.query.all())
+    return render_template('index.html', s=SiteSettings.query.first(), services=Service.query.all(), portfolio=Portfolio.query.all())
 
-# --- Маршруты админ-панели ---
+# --- Маршруты Админ-панели ---
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
@@ -297,7 +294,7 @@ def admin_login():
         if user and user.check_password(request.form['password']):
             session['user_id'] = user.id
             return redirect(url_for('admin_dashboard'))
-        flash('Неверные данные для входа.', 'error')
+        flash('Неверные данные', 'error')
     return render_template('admin/login.html')
 
 @app.route('/admin/logout')
@@ -308,221 +305,145 @@ def admin_logout():
 @app.route('/admin')
 @login_required
 def admin_dashboard():
-    return render_template('admin/dashboard.html',
-        projects_count=Portfolio.query.count(),
-        services_count=Service.query.count(),
-        messages_count=ContactMessage.query.filter_by(is_read=False).count())
+    return render_template('admin/dashboard.html', projects_count=Portfolio.query.count(), services_count=Service.query.count(), messages_count=ContactMessage.query.filter_by(is_read=False).count())
 
 @app.route('/admin/settings', methods=['GET', 'POST'])
 @login_required
 def admin_settings():
-    settings = SiteSettings.query.first()
+    s = SiteSettings.query.first()
     if request.method == 'POST':
-        for key, value in request.form.items(): setattr(settings, key, value)
+        for key, value in request.form.items(): setattr(s, key, value)
         db.session.commit()
-        flash('Настройки успешно сохранены!', 'success')
+        flash('Настройки сохранены.', 'success')
         return redirect(url_for('admin_settings'))
-    return render_template('admin/settings.html', settings=settings)
+    return render_template('admin/settings.html', s=s)
 
-# --- CRUD Услуги ---
 @app.route('/admin/services', methods=['GET', 'POST'])
 @login_required
-def admin_services_crud():
+def admin_services():
     if request.method == 'POST':
-        new_service = Service(title=request.form['title'], description=request.form['description'], icon=request.form['icon'])
-        db.session.add(new_service)
-        db.session.commit()
-        flash('Услуга успешно добавлена!')
-        return redirect(url_for('admin_services_crud'))
+        db.session.add(Service(title=request.form['title'], description=request.form['description'], icon=request.form['icon'])); db.session.commit()
+        flash('Услуга добавлена.'); return redirect(url_for('admin_services'))
     return render_template('admin/services.html', services=Service.query.all())
-
-@app.route('/admin/service/delete/<int:id>')
+@app.route('/admin/services/delete/<int:id>')
 @login_required
-def admin_service_delete(id):
-    db.session.delete(Service.query.get_or_404(id))
-    db.session.commit()
-    return redirect(url_for('admin_services_crud'))
+def admin_service_delete(id): db.session.delete(Service.query.get_or_404(id)); db.session.commit(); return redirect(url_for('admin_services'))
 
-# --- CRUD Портфолио ---
 @app.route('/admin/portfolio', methods=['GET', 'POST'])
 @login_required
-def admin_portfolio_crud():
+def admin_portfolio():
     if request.method == 'POST':
-        new_project=Portfolio(title=request.form['title'], description=request.form['description'], short_description=request.form['short_description'], technologies=request.form['technologies'], github_url=request.form['github_url'])
-        db.session.add(new_project)
-        db.session.commit()
-        flash('Проект успешно добавлен!')
-        return redirect(url_for('admin_portfolio_crud'))
+        db.session.add(Portfolio(title=request.form['title'], description=request.form['description'], short_description=request.form['short_description'], technologies=request.form['technologies'])); db.session.commit()
+        flash('Проект добавлен.'); return redirect(url_for('admin_portfolio'))
     return render_template('admin/portfolio.html', projects=Portfolio.query.all())
-
-@app.route('/admin/portfolio/edit/<int:id>', methods=['GET', 'POST'])
+@app.route('/admin/portfolio/edit/<int:id>', methods=['GET','POST'])
 @login_required
 def admin_portfolio_edit(id):
-    project = Portfolio.query.get_or_404(id)
+    p = Portfolio.query.get_or_404(id)
     if request.method == 'POST':
-        project.title = request.form['title']
-        project.description = request.form['description']
-        project.short_description = request.form['short_description']
-        project.technologies = request.form['technologies']
-        project.github_url = request.form['github_url']
+        p.title, p.description, p.short_description, p.technologies = request.form['title'], request.form['description'], request.form['short_description'], request.form['technologies']
         db.session.commit()
-        flash('Проект успешно обновлен!')
-        return redirect(url_for('admin_portfolio_crud'))
-    return render_template('admin/portfolio_form.html', project=project)
-
+        flash('Проект обновлен.'); return redirect(url_for('admin_portfolio'))
+    return render_template('admin/portfolio_form.html', p=p)
 @app.route('/admin/portfolio/delete/<int:id>')
 @login_required
-def admin_portfolio_delete(id):
-    db.session.delete(Portfolio.query.get_or_404(id))
-    db.session.commit()
-    flash('Проект успешно удален!')
-    return redirect(url_for('admin_portfolio_crud'))
+def admin_portfolio_delete(id): db.session.delete(Portfolio.query.get_or_404(id)); db.session.commit(); return redirect(url_for('admin_portfolio'))
 
-# --- CRUD Сообщения ---
 @app.route('/admin/messages')
 @login_required
-def admin_messages():
-    messages = ContactMessage.query.order_by(ContactMessage.created_at.desc()).all()
-    return render_template('admin/messages.html', messages=messages)
+def admin_messages(): return render_template('admin/messages.html', messages=ContactMessage.query.order_by(ContactMessage.created_at.desc()).all())
 
-@app.route('/admin/message/read/<int:id>')
-@login_required
-def admin_message_read(id):
-    message = ContactMessage.query.get_or_404(id)
-    message.is_read = True
-    db.session.commit()
-    return redirect(url_for('admin_messages'))
-
-@app.route('/admin/message/delete/<int:id>')
-@login_required
-def admin_message_delete(id):
-    db.session.delete(ContactMessage.query.get_or_404(id))
-    db.session.commit()
-    flash('Сообщение удалено.')
-    return redirect(url_for('admin_messages'))
-
-# --- Инициализация БД ---
-def init_db():
+@app.cli.command('init-db')
+def init_db_command():
     if User.query.count() == 0:
-        print("Creating initial database data...")
-        admin=User(username=os.environ.get('ADMIN_USERNAME'))
-        admin.set_password(os.environ.get('ADMIN_PASSWORD'))
-        db.session.add(admin)
+        db.drop_all()
+        db.create_all()
+        admin = User(username=os.environ.get('ADMIN_USERNAME')); admin.set_password(os.environ.get('ADMIN_PASSWORD')); db.session.add(admin)
         db.session.add(SiteSettings())
-        services = [Service(title='Разработка Telegram Ботов', description='Создание многофункциональных ботов.'), Service(title='Автоматизация процессов', description='Оптимизация рутинных задач.')]
-        projects = [Portfolio(title='Бот для E-commerce', description='Полнофункциональный бот для интернет-магазина.', short_description='Магазин в Telegram.', technologies='Python, Aiogram'), Portfolio(title='CRM система', description='Приложение для управления клиентами.', short_description='Веб-приложение CRM', technologies='Python, Flask')]
-        for s in services: db.session.add(s)
-        for p in projects: db.session.add(p)
+        services_data = [Service(title='Разработка Telegram Ботов',description='Создание ботов любой сложности.'), Service(title='Веб-разработка на Flask',description='Создание легких и быстрых сайтов.')]
+        portfolio_data = [Portfolio(title='Бот для E-commerce',description='Магазин в Telegram.',short_description='Магазин в Telegram.',technologies='Python, Aiogram'), Portfolio(title='CRM Система',description='Система управления клиентами.',short_description='Веб-приложение CRM',technologies='Python, Flask')]
+        for s in services_data: db.session.add(s)
+        for p in portfolio_data: db.session.add(p)
         db.session.commit()
-        print("Initial data created.")
+        print("Database initialized.")
+EOF
 
-with app.app_context():
-    db.create_all()
-    init_db()
+    # --- HTML шаблоны ---
+    # Главная страница
+    tee $PROJECT_DIR/templates/index.html >/dev/null << 'EOF'
+<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>{{ s.site_title }}</title><link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet"></head><body><header class="hero"><div class="container"><h1>{{ s.hero_title }}</h1><p>{{ s.hero_subtitle }}</p></div></header><main><section id="about" class="container"><h2>{{ s.about_title }}</h2><p>{{ s.about_description }}</p></section><section id="services" class="container"><h2>Услуги</h2><div class="grid">{% for service in services %}<article class="card"><h3><i class="{{ service.icon }}"></i> {{ service.title }}</h3><p>{{ service.description }}</p></article>{% endfor %}</div></section><section id="portfolio" class="container"><h2>Портфолио</h2><div class="grid">{% for project in portfolio %}<article class="card"><h3>{{ project.title }}</h3><p>{{ project.short_description }}</p><p><b>Технологии:</b> {{ project.technologies }}</p></article>{% endfor %}</div></section></main><footer><div class="container"><p>&copy; 2025 KodoDrive</p></div></footer></body></html>
+EOF
+    # Базовый шаблон админки
+    tee $PROJECT_DIR/templates/admin/base.html >/dev/null << 'EOF'
+<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Админ-панель</title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"></head><body class="bg-light">
+<div class="container-fluid"><div class="row"><nav class="col-md-2 d-none d-md-block bg-dark sidebar vh-100"><div class="sidebar-sticky pt-3"><ul class="nav flex-column">
+<li class="nav-item"><a class="nav-link text-white" href="{{ url_for('admin_dashboard') }}">Dashboard</a></li>
+<li class="nav-item"><a class="nav-link text-white" href="{{ url_for('admin_settings') }}">Настройки</a></li>
+<li class="nav-item"><a class="nav-link text-white" href="{{ url_for('admin_services') }}">Услуги</a></li>
+<li class="nav-item"><a class="nav-link text-white" href="{{ url_for('admin_portfolio') }}">Портфолио</a></li>
+<li class="nav-item"><a class="nav-link text-white" href="{{ url_for('admin_messages') }}">Сообщения</a></li>
+<li class="nav-item"><a class="nav-link text-white" href="{{ url_for('admin_logout') }}">Выйти</a></li></ul></div></nav>
+<main role="main" class="col-md-9 ms-sm-auto col-lg-10 px-4"><div class="pt-3">
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for category, message in messages %}<div class="alert alert-{{ 'success' if category == 'success' else 'danger' }}">{{ message }}</div>{% endfor %}{% endif %}{% endwith %}
+{% block content %}{% endblock %}</div></main></div></div></body></html>
+EOF
+    # Шаблоны CRUD
+    tee $PROJECT_DIR/templates/admin/dashboard.html >/dev/null << 'EOF'
+{% extends 'admin/base.html' %}{% block content %}<h1>Dashboard</h1><p>Проектов: {{ projects_count }} | Услуг: {{ services_count }} | Новых сообщений: {{ messages_count }}</p>{% endblock %}
+EOF
+    tee $PROJECT_DIR/templates/admin/login.html >/dev/null << 'EOF'
+{% extends 'admin/base.html' %}{% block content %}<div class="d-flex vh-100 justify-content-center align-items-center"><form method="post" class="p-5 border rounded-3 bg-white"><h2>Вход</h2><div class="mb-3"><label>Логин</label><input type="text" name="username" class="form-control" required></div><div class="mb-3"><label>Пароль</label><input type="password" name="password" class="form-control" required></div><button type="submit" class="btn btn-primary">Войти</button></form></div>{% endblock %}
+EOF
+    tee $PROJECT_DIR/templates/admin/settings.html >/dev/null << 'EOF'
+{% extends 'admin/base.html' %}{% block content %}<h1>Настройки сайта</h1><form method="post">{% for key, value in s.__dict__.items() if not key.startswith('_') and key != 'id' %}<div class="mb-3"><label class="form-label text-capitalize">{{ key.replace('_', ' ') }}</label><input type="text" name="{{ key }}" value="{{ value or '' }}" class="form-control"></div>{% endfor %}<button type="submit" class="btn btn-primary">Сохранить</button></form>{% endblock %}
+EOF
+    tee $PROJECT_DIR/templates/admin/services.html >/dev/null << 'EOF'
+{% extends 'admin/base.html' %}{% block content %}<h2>Управление Услугами</h2><form method="post" class="mb-4 p-4 border rounded"><h3>Добавить услугу</h3><div class="mb-3"><label>Название</label><input name="title" class="form-control" required></div><div class="mb-3"><label>Описание</label><textarea name="description" class="form-control" required></textarea></div><div class="mb-3"><label>Иконка FontAwesome</label><input name="icon" value="fas fa-cogs" class="form-control"></div><button type="submit" class="btn btn-success">Добавить</button></form><hr><h3>Список услуг</h3><table class="table"><thead><tr><th>Иконка</th><th>Название</th><th>Описание</th><th>Действие</th></tr></thead><tbody>{% for service in services %}<tr><td><i class="{{ service.icon }}"></i></td><td>{{ service.title }}</td><td>{{ service.description }}</td><td><a href="{{ url_for('admin_service_delete', id=service.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Удалить?')">Удалить</a></td></tr>{% endfor %}</tbody></table>{% endblock %}
+EOF
+    tee $PROJECT_DIR/templates/admin/portfolio.html >/dev/null << 'EOF'
+{% extends 'admin/base.html' %}{% block content %}<h2>Управление Портфолио</h2><form method="post" class="mb-4 p-4 border rounded"><h3>Добавить проект</h3><div class="mb-3"><label>Название</label><input name="title" required class="form-control"></div><div class="mb-3"><label>Краткое описание</label><input name="short_description" class="form-control"></div><div class="mb-3"><label>Полное описание</label><textarea name="description" required class="form-control"></textarea></div><div class="mb-3"><label>Технологии (через запятую)</label><input name="technologies" class="form-control"></div><div class="mb-3"><label>Ссылка на GitHub</label><input name="github_url" class="form-control"></div><button type="submit" class="btn btn-success">Добавить</button></form><hr><h3>Проекты</h3><table class="table"><thead><tr><th>Название</th><th>Описание</th><th>Технологии</th><th>Действия</th></tr></thead><tbody>{% for p in projects %}<tr><td>{{ p.title }}</td><td>{{ p.short_description }}</td><td>{{ p.technologies }}</td><td><a href="{{ url_for('admin_portfolio_edit', id=p.id) }}" class="btn btn-sm btn-secondary">Редактировать</a> <a href="{{ url_for('admin_portfolio_delete', id=p.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Удалить?')">Удалить</a></td></tr>{% endfor %}</tbody></table>{% endblock %}
+EOF
+    tee $PROJECT_DIR/templates/admin/portfolio_form.html >/dev/null << 'EOF'
+{% extends 'admin/base.html' %}{% block content %}<h2>Редактировать проект: {{ p.title }}</h2><form method="post"><div class="mb-3"><label>Название</label><input name="title" value="{{ p.title }}" required class="form-control"></div><div class="mb-3"><label>Краткое описание</label><input name="short_description" value="{{ p.short_description }}" class="form-control"></div><div class="mb-3"><label>Полное описание</label><textarea name="description" required class="form-control">{{ p.description }}</textarea></div><div class="mb-3"><label>Технологии</label><input name="technologies" value="{{ p.technologies or '' }}" class="form-control"></div><div class="mb-3"><label>Ссылка GitHub</label><input name="github_url" value="{{ p.github_url or '' }}" class="form-control"></div><button type="submit" class="btn btn-primary">Сохранить</button></form>{% endblock %}
+EOF
+    tee $PROJECT_DIR/templates/admin/messages.html >/dev/null << 'EOF'
+{% extends 'admin/base.html' %}{% block content %}<h2>Сообщения</h2><table class="table"><thead><tr><th>Дата</th><th>От кого</th><th>Тема</th><th>Прочитано</th><th>Действия</th></tr></thead><tbody>{% for m in messages %}<tr><td>{{ m.created_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ m.name }} &lt;{{m.email}}&gt;</td><td>{{ m.subject }}</td><td><b>{{ 'Да' if m.is_read else 'Нет' }}</b></td><td><a href="{{ url_for('admin_message_delete', id=m.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Удалить?')">Удалить</a></td></tr>{% endfor %}</tbody></table>{% endblock %}
+EOF
+
+    # --- CSS & JS ---
+    tee $PROJECT_DIR/static/css/style.css >/dev/null << 'EOF'
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #f0f2f5; color: #333; line-height: 1.6; } .container { max-width: 960px; margin: 2em auto; padding: 0 1em; } .hero { text-align: center; padding: 4em 1em; } .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5em; } .card { background: white; padding: 1.5em; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); } .footer { text-align: center; margin-top: 4em; padding: 2em 0; color: #777; }
 EOF
 
     chown -R kododrive:kododrive "$PROJECT_DIR"
-    log "Python файлы созданы успешно."
+    log "Файлы проекта полностью перезаписаны."
 }
 
-create_templates() {
-    log "Создание HTML шаблонов..."
-    PROJECT_DIR="/home/kododrive/portfolio"
-
-    # --- Главные шаблоны ---
-    tee $PROJECT_DIR/templates/index.html >/dev/null << 'EOF'
-<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>{{ settings.site_title }}</title><link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"></head><body><h1>Сайт находится в разработке</h1></body></html>
-EOF
-
-    # --- Шаблоны админ-панели (ПОЛНЫЕ ВЕРСИИ) ---
-    tee $PROJECT_DIR/templates/admin/base.html >/dev/null << 'EOF'
-<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Админ-панель</title><style>body{font-family: Arial, sans-serif; margin: 2em;} nav a{margin-right: 1em; text-decoration: none;} table{width: 100%; border-collapse: collapse; margin-top: 1em;} td,th{border: 1px solid #ccc; padding: 8px; text-align: left;} form{background: #f4f4f4; padding: 1em; margin-top: 1em; border-radius: 5px;} form input, form textarea{width: 500px; padding: 8px; margin-bottom: 1em; display: block;} .alert-success{color:green;} .alert-error{color:red;}</style></head><body>
-<nav><a href="{{ url_for('admin_dashboard') }}">Dashboard</a> | <a href="{{ url_for('admin_settings') }}">Настройки</a> | <a href="{{ url_for('admin_services_crud') }}">Услуги</a> | <a href="{{ url_for('admin_portfolio_crud') }}">Портфолио</a> | <a href="{{ url_for('admin_messages') }}">Сообщения</a> | <a href="{{ url_for('admin_logout') }}">Выйти</a></nav><hr>
-{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for category, message in messages %}<div class="alert-{{ category }}">{{ message }}</div>{% endfor %}{% endif %}{% endwith %}
-{% block content %}{% endblock %}</body></html>
-EOF
-
-    tee $PROJECT_DIR/templates/admin/login.html >/dev/null << 'EOF'
-{% extends 'admin/base.html' %}{% block content %}<h2>Вход в админ-панель</h2><form method="post"><label>Логин:</label><input type="text" name="username" required><label>Пароль:</label><input type="password" name="password" required><button type="submit">Войти</button></form>{% endblock %}
-EOF
-
-    tee $PROJECT_DIR/templates/admin/dashboard.html >/dev/null << 'EOF'
-{% extends 'admin/base.html' %}{% block content %}<h2>Dashboard</h2><p>Всего проектов в портфолио: {{ projects_count }}</p><p>Всего услуг: {{ services_count }}</p><p>Новых сообщений: {{ messages_count }}</p>{% endblock %}
-EOF
-
-    tee $PROJECT_DIR/templates/admin/settings.html >/dev/null << 'EOF'
-{% extends 'admin/base.html' %}{% block content %}<h2>Настройки Сайта</h2><form method="post">
-{% for key, value in settings.__dict__.items() if not key.startswith('_') and key != 'id' %}
-<label><b>{{ key }}</b></label><input type="text" name="{{ key }}" value="{{ value or '' }}">
-{% endfor %}
-<button type="submit">Сохранить</button></form>{% endblock %}
-EOF
-
-    tee $PROJECT_DIR/templates/admin/services.html >/dev/null << 'EOF'
-{% extends 'admin/base.html' %}{% block content %}<h2>Управление Услугами</h2><form method="post"><h3>Добавить услугу</h3><label>Название:</label><input name="title" required><label>Описание:</label><textarea name="description" required></textarea><label>Иконка (FontAwesome):</label><input name="icon" value="fas fa-cogs"><button type="submit">Добавить</button></form><hr><h3>Список услуг</h3>
-<table><thead><tr><th>Иконка</th><th>Название</th><th>Описание</th><th>Действие</th></tr></thead><tbody>
-{% for s in services %}<tr><td><i class="{{ s.icon }}"></i> {{ s.icon }}</td><td>{{ s.title }}</td><td>{{ s.description }}</td><td><a href="{{ url_for('admin_service_delete', id=s.id) }}" onclick="return confirm('Вы уверены?')">Удалить</a></td></tr>{% endfor %}
-</tbody></table>{% endblock %}
-EOF
-
-    tee $PROJECT_DIR/templates/admin/portfolio.html >/dev/null << 'EOF'
-{% extends 'admin/base.html' %}{% block content %}<h2>Управление Портфолио</h2><form method="post"><h3>Добавить проект</h3>
-<label>Название:</label><input name="title" required><label>Краткое описание:</label><input name="short_description"><label>Полное описание:</label><textarea name="description" required></textarea><label>Технологии (через запятую):</label><input name="technologies"><label>Ссылка на GitHub:</label><input name="github_url"><button type="submit">Добавить</button></form><hr><h3>Проекты</h3>
-<table><thead><tr><th>Название</th><th>Краткое описание</th><th>Технологии</th><th>Действия</th></tr></thead><tbody>
-{% for p in projects %}<tr><td>{{ p.title }}</td><td>{{ p.short_description }}</td><td>{{ p.technologies }}</td><td><a href="{{ url_for('admin_portfolio_edit', id=p.id) }}">Редактировать</a> <a href="{{ url_for('admin_portfolio_delete', id=p.id) }}" onclick="return confirm('Вы уверены?')">Удалить</a></td></tr>{% endfor %}
-</tbody></table>{% endblock %}
-EOF
-
-    tee $PROJECT_DIR/templates/admin/portfolio_form.html >/dev/null << 'EOF'
-{% extends 'admin/base.html' %}{% block content %}<h2>Редактировать проект: {{ project.title }}</h2><form method="post">
-<label>Название:</label><input name="title" value="{{ project.title }}" required><label>Краткое описание:</label><input name="short_description" value="{{ project.short_description }}"><label>Полное описание:</label><textarea name="description" required>{{ project.description }}</textarea><label>Технологии:</label><input name="technologies" value="{{ project.technologies }}"><label>Ссылка на GitHub:</label><input name="github_url" value="{{ project.github_url }}"><button type="submit">Сохранить</button></form>{% endblock %}
-EOF
-
-    tee $PROJECT_DIR/templates/admin/messages.html >/dev/null << 'EOF'
-{% extends 'admin/base.html' %}{% block content %}<h2>Сообщения</h2><table><thead><tr><th>Дата</th><th>От кого</th><th>Тема</th><th>Прочитано</th><th>Действие</th></tr></thead><tbody>
-{% for m in messages %}<tr><td>{{ m.created_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ m.name }} ({{ m.email }})</td><td>{{ m.subject }}</td><td><b>{{ 'Да' if m.is_read else 'Нет' }}</b></td><td>{% if not m.is_read %}<a href="{{ url_for('admin_message_read', id=m.id) }}">Отметить прочитанным</a> | {% endif %}<a href="{{ url_for('admin_message_delete', id=m.id) }}" onclick="return confirm('Уверены?')">Удалить</a></td></tr>{% endfor %}
-</tbody></table>{% endblock %}
-EOF
-
-    chown -R kododrive:kododrive "$PROJECT_DIR/templates"
-    log "HTML шаблоны созданы успешно."
-}
-
-create_static_files() {
-    log "Создание статических файлов..."
-    PROJECT_DIR="/home/kododrive/portfolio"
-
-    tee $PROJECT_DIR/static/css/style.css >/dev/null << 'EOF'
-body { background: #f0f2f5; color: #333; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.6; }
-EOF
-
-    chown -R kododrive:kododrive "$PROJECT_DIR/static"
-    log "Статические файлы созданы."
-}
-
+# Функция настройки Flask приложения
 setup_flask_app() {
     log "Настройка Flask приложения..."
 
-    PROJECT_DIR="/home/kododrive/portfolio"
-
     sudo -u kododrive bash -c "
-        cd '$PROJECT_DIR' &&
+        cd '/home/kododrive/portfolio' &&
         python3 -m venv venv &&
         source venv/bin/activate &&
-        pip install --upgrade pip -q &&
-        pip install -r requirements.txt -q
-    " || error "Ошибка при настройке виртуального окружения Python."
+        pip install --upgrade pip -qq &&
+        pip install -r requirements.txt -qq &&
+        echo 'Инициализация базы данных...' &&
+        flask init-db
+    " || error "Ошибка при настройке Flask."
 
     log "Flask приложение настроено."
 }
 
+# Функция создания systemd сервиса
 create_systemd_service() {
     log "Создание systemd сервиса..."
-
-    tee /etc/systemd/system/kododrive-portfolio.service >/dev/null << EOF
+    tee /etc/systemd/system/kododrive-portfolio.service >/dev/null <<EOF
 [Unit]
 Description=KodoDrive Portfolio Gunicorn Instance
 After=network.target
+
 [Service]
 User=kododrive
 Group=www-data
@@ -530,6 +451,7 @@ WorkingDirectory=/home/kododrive/portfolio
 EnvironmentFile=/home/kododrive/portfolio/.env
 ExecStart=/home/kododrive/portfolio/venv/bin/gunicorn --workers 3 --bind unix:portfolio.sock -m 007 wsgi:app
 Restart=always
+
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -537,37 +459,38 @@ EOF
     systemctl daemon-reload
     systemctl enable --now kododrive-portfolio || error "Не удалось запустить сервис kododrive-portfolio."
 
-    log "Systemd сервис создан и запущен."
+    log "Systemd сервис запущен."
 }
 
-setup_nginx_and_ssl() {
+# Функция настройки Nginx и SSL
+setup_nginx() {
     log "Настройка Nginx и SSL..."
 
     rm -f /etc/nginx/sites-enabled/default
 
-    tee /etc/nginx/sites-available/$DOMAIN >/dev/null << EOF
+    domain_config="/etc/nginx/sites-available/$DOMAIN"
+
+    tee $domain_config >/dev/null <<EOF
 server {
     listen 80;
     server_name $DOMAIN www.$DOMAIN;
-    location / {
-        return 301 https://\$host\$request_uri;
-    }
-    location /.well-known/acme-challenge/ {
-        root /var/www/html;
-    }
+    root /var/www/html;
+    location /.well-known/acme-challenge/ { allow all; }
+    location / { return 301 https://\$host\$request_uri; }
 }
 EOF
 
-    ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/
+    ln -sf $domain_config /etc/nginx/sites-enabled/
     nginx -t || error "Ошибка синтаксиса конфигурации Nginx."
     systemctl restart nginx || error "Не удалось перезапустить Nginx."
 
-    certbot --nginx --agree-tos --no-eff-email --email $EMAIL -d $DOMAIN -d www.$DOMAIN || error "Не удалось получить SSL сертификат."
+    certbot --nginx --agree-tos --no-eff-email --email "$EMAIL" -d "$DOMAIN" -d "www.$DOMAIN" || error "Не удалось получить SSL сертификат."
 
-    tee /etc/nginx/sites-available/$DOMAIN >/dev/null << EOF
+    tee $domain_config >/dev/null <<EOF
 server {
     listen 443 ssl http2;
     server_name $DOMAIN www.$DOMAIN;
+
     ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
@@ -576,10 +499,9 @@ server {
     location /static {
         alias /home/kododrive/portfolio/static;
     }
-
     location / {
-        include proxy_params;
         proxy_pass http://unix:/home/kododrive/portfolio/portfolio.sock;
+        include proxy_params;
     }
 }
 EOF
@@ -588,6 +510,25 @@ EOF
     systemctl reload nginx
 
     log "Nginx и SSL настроены."
+}
+
+# Функция настройки безопасности
+setup_security() {
+    log "Настройка безопасности..."
+
+    # Firewall
+    info "Настройка правил Firewall..."
+    ufw allow 22/tcp comment 'OpenSSH' || warning "Не удалось добавить правило для SSH"
+    ufw allow 80/tcp comment 'HTTP' || warning "Не удалось добавить правило для HTTP"
+    ufw allow 443/tcp comment 'HTTPS' || warning "Не удалось добавить правило для HTTPS"
+    ufw --force enable || error "Не удалось включить firewall"
+    info "Статус Firewall:"
+    ufw status verbose
+
+    # Настройка прав доступа
+    chmod 755 /home/kododrive
+
+    log "Безопасность настроена."
 }
 
 # Главная функция установки
@@ -600,13 +541,15 @@ main() {
     setup_postgresql
     create_project_structure
     create_project_files
-    create_templates
-    create_static_files
     setup_flask_app
     create_systemd_service
-    setup_nginx_and_ssl
+    setup_nginx
+    setup_security
 
-    # Финальные проверки
+    log "Финальный перезапуск сервисов..."
+    systemctl restart kododrive-portfolio
+    systemctl restart nginx
+
     log "Выполнение финальных проверок..."
     if ! systemctl is-active --quiet kododrive-portfolio; then error "Сервис Flask не запустился."; fi
     if ! systemctl is-active --quiet nginx; then error "Сервис Nginx не запустился."; fi
@@ -617,7 +560,7 @@ main() {
     cat << "EOF"
 ╔═══════════════════════════════════════════════════════════════════════════════╗
 ║                                                                               ║
-║              🎉 УСТАНОВКА ЗАВЕРШЕНА УСПЕШНО! (v3.1 FIXED) 🎉                   ║
+║              🎉 УСТАНОВКА ЗАВЕРШЕНА УСПЕШНО! (v3.2 STABLE) 🎉                   ║
 ║                                                                               ║
 ╚═══════════════════════════════════════════════════════════════════════════════╝
 EOF
@@ -632,7 +575,7 @@ EOF
     info "   • Статус сервиса: sudo systemctl status kododrive-portfolio"
     info "   • Логи приложения: sudo journalctl -u kododrive-portfolio -f"
     info "   • Перезапуск: sudo systemctl restart kododrive-portfolio"
-    echo ""
+
     log "✅ Все готово! Приятного использования."
 }
 
