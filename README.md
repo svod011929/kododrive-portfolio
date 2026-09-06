@@ -10,7 +10,7 @@
 
 **Профессиональный сайт-портфолио для Python разработчика с полнофункциональной CMS**
 
-[🌐 Демо](https://kododrive.ru) • [📖 Документация](#-установка) • [🐛 Баги](../../issues) • [💡 Идеи](../../discussions)
+[🌐 Демо]() • [📖 Документация](#-установка) • [🐛 Баги](../../issues) • [💡 Идеи](../../discussions)
 
 </div>
 
@@ -821,7 +821,7 @@ MIT License - вы можете:
 
 **🚀 KodoDrive - Python Full Stack Developer**
 
-[![Website](https://img.shields.io/badge/Website-kododrive.ru-blue?style=for-the-badge&logo=google-chrome&logoColor=white)](https://kododrive.ru)
+[![Website](https://img.shields.io/badge/Website--blue?style=for-the-badge&logo=google-chrome&logoColor=white)]()
 [![Telegram](https://img.shields.io/badge/Telegram-@kodoDrive-blue?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/kodoDrive)
 [![GitHub](https://img.shields.io/badge/GitHub-svod011929-black?style=for-the-badge&logo=github&logoColor=white)](https://github.com/svod011929)
 
@@ -868,7 +868,7 @@ MIT License - вы можете:
 
 ## Проекты KodoDrive
 
-Другие проекты автора: [профиль @svod011929](https://github.com/svod011929) · [сайт](https://kododrive.ru) · [Telegram](https://t.me/KodoDrive)
+Другие проекты автора: [профиль @svod011929](https://github.com/svod011929) · [Telegram](https://t.me/KodoDrive)
 
 ### VPN и инфраструктура
 
